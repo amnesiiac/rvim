@@ -39,7 +39,7 @@ tree-sitter-ruby = "0.23.1"
 streaming-iterator = "0.1"
 
 # System clipboard
-arboard = "3.4"
+arboard = { version = "3.4", features = ["wayland-data-control"] }
 
 # Configuration
 toml = "0.8"
