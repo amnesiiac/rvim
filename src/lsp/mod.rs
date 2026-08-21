@@ -118,7 +118,7 @@ impl LspManager {
     /// Notify that a document was opened
     pub fn did_open(&self, path: &PathBuf, text: &str) -> anyhow::Result<()> {
         let uri = path_to_uri(path);
-        let language_id = detect_language(path);
+        let language_id = detect_language_for_document(path, text);
         self.send(LspRequest::DidOpen {
             uri,
             language_id,
@@ -605,9 +605,13 @@ pub fn uri_to_path(uri: &str) -> Option<PathBuf> {
     Url::parse(uri).ok().and_then(|url| url.to_file_path().ok())
 }
 
-/// Detect language ID from file extension
-fn detect_language(path: &PathBuf) -> String {
-    match path.extension().and_then(|e| e.to_str()) {
+/// Detect the LSP `languageId` for a document from path, then shebang if needed.
+fn detect_language_for_document(path: &PathBuf, text: &str) -> String {
+    if crate::syntax::is_shell_path(path) {
+        return "shellscript".to_string();
+    }
+
+    let from_path = match path.extension().and_then(|e| e.to_str()) {
         Some("rs") => "rust".to_string(),
         Some("py") | Some("pyi") | Some("pyw") => "python".to_string(),
         Some("js") => "javascript".to_string(),
@@ -643,12 +647,22 @@ fn detect_language(path: &PathBuf) -> String {
         Some("sql") => "sql".to_string(),
         Some("sh") | Some("bash") => "shellscript".to_string(),
         _ => "plaintext".to_string(),
+    };
+
+    if from_path != "plaintext" {
+        return from_path;
     }
+
+    if crate::syntax::shebang_is_shell(text.lines().next().unwrap_or("")) {
+        return "shellscript".to_string();
+    }
+
+    from_path
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{detect_language, join_thread_with_timeout};
+    use super::{detect_language_for_document, join_thread_with_timeout};
     use std::path::PathBuf;
     use std::sync::mpsc;
     use std::thread;
@@ -689,10 +703,35 @@ mod tests {
             ("file.gemspec", "ruby"),
             ("config.ru", "ruby"),
             ("file.podspec", "ruby"),
+            ("file.sh", "shellscript"),
+            ("file.bash", "shellscript"),
+            ("file.zsh", "shellscript"),
+            (".zshrc", "shellscript"),
+            (".bashrc", "shellscript"),
+            (".bash_profile", "shellscript"),
         ];
 
         for (path, language) in cases {
-            assert_eq!(detect_language(&PathBuf::from(path)), language);
+            assert_eq!(
+                detect_language_for_document(&PathBuf::from(path), ""),
+                language
+            );
         }
+    }
+
+    #[test]
+    fn detect_language_uses_shell_shebang_for_extensionless_files() {
+        assert_eq!(
+            detect_language_for_document(&PathBuf::from("bin/deploy"), "#!/usr/bin/env bash\n"),
+            "shellscript"
+        );
+        assert_eq!(
+            detect_language_for_document(&PathBuf::from("bin/deploy"), "#!/usr/bin/env python3\n"),
+            "plaintext"
+        );
+        assert_eq!(
+            detect_language_for_document(&PathBuf::from("main.py"), "#!/usr/bin/env bash\n"),
+            "python"
+        );
     }
 }

@@ -1367,6 +1367,11 @@ pub fn php_highlight_query() -> &'static str {
     tree_sitter_php::HIGHLIGHTS_QUERY
 }
 
+/// Get the highlight query for Bash / POSIX shell
+pub fn shell_highlight_query() -> &'static str {
+    tree_sitter_bash::HIGHLIGHT_QUERY
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1529,6 +1534,39 @@ mod tests {
             tree_sitter_php::LANGUAGE_PHP.into(),
             php_highlight_query(),
             "PHP",
+        );
+    }
+
+    #[test]
+    fn shell_highlight_query_compiles() {
+        assert_query_compiles(
+            tree_sitter_bash::LANGUAGE.into(),
+            shell_highlight_query(),
+            "Bash",
+        );
+    }
+
+    #[test]
+    fn shell_query_captures_keywords_and_commands() {
+        let captures = capture_texts(
+            tree_sitter_bash::LANGUAGE.into(),
+            shell_highlight_query(),
+            "if true; then echo hello; fi\n",
+        );
+
+        assert!(
+            captures
+                .iter()
+                .any(|(name, text)| name == "keyword" && text == "if"),
+            "expected shell if keyword to be captured, got {:?}",
+            captures
+        );
+        assert!(
+            captures
+                .iter()
+                .any(|(name, text)| name == "function" && text == "echo"),
+            "expected shell command name to be captured, got {:?}",
+            captures
         );
     }
 

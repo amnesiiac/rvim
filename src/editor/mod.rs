@@ -1673,17 +1673,15 @@ impl Editor {
             "py" | "pyi" | "pyw" => "python".to_string(),
             "go" => "go".to_string(),
             "yaml" | "yml" => "yaml".to_string(),
-            "sh" | "bash" | "zsh" => "shell".to_string(),
+            "sh" | "bash" | "zsh" | "ksh" | "bats" => "shell".to_string(),
             _ => ext_lower,
         }
     }
 
     /// Get the formatter config for the current buffer (if any)
     pub fn get_current_formatter(&self) -> Option<&crate::config::FormatterConfig> {
-        let buffer = self.buffer();
-        let path = buffer.path.as_ref()?;
-        let ext = path.extension()?.to_str()?;
-        let language = Self::extension_to_language(ext);
+        let path = self.buffer().path.as_ref()?;
+        let language = Self::config_language_for_path(path)?;
         self.languages_config.get_formatter(&language)
     }
 
@@ -1694,8 +1692,7 @@ impl Editor {
     ) -> Option<&crate::config::FormatterConfig> {
         let buffer = self.buffers.get(buffer_idx)?;
         let path = buffer.path.as_ref()?;
-        let ext = path.extension()?.to_str()?;
-        let language = Self::extension_to_language(ext);
+        let language = Self::config_language_for_path(path)?;
         self.languages_config.get_formatter(&language)
     }
 
@@ -1703,14 +1700,22 @@ impl Editor {
     /// Returns language-specific override or falls back to editor default
     pub fn get_effective_tab_width(&self) -> usize {
         if let Some(path) = self.buffer().path.as_ref() {
-            if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                let language = Self::extension_to_language(ext);
+            if let Some(language) = Self::config_language_for_path(path) {
                 if let Some(tab_width) = self.languages_config.get_tab_width(&language) {
                     return tab_width;
                 }
             }
         }
         self.settings.editor.tab_width
+    }
+
+    fn config_language_for_path(path: &std::path::Path) -> Option<String> {
+        if crate::syntax::is_shell_path(path) {
+            return Some("shell".to_string());
+        }
+        path.extension()
+            .and_then(|e| e.to_str())
+            .map(Self::extension_to_language)
     }
 
     /// Get the current theme
@@ -2794,11 +2799,12 @@ impl Editor {
     }
 
     fn sync_syntax_to_current_buffer(&mut self) {
-        let syntax_hint = self.buffers[self.current_buffer_idx]
-            .syntax_hint_path()
-            .cloned();
-        self.syntax
-            .set_language_from_path_option(syntax_hint.as_ref());
+        let syntax_hint = self.buffer().syntax_hint_path().cloned();
+        let first_line = self.buffer().first_line();
+        self.syntax.set_language_from_path_option_and_first_line(
+            syntax_hint.as_ref(),
+            first_line.as_deref(),
+        );
         self.parse_current_buffer();
     }
 
@@ -3457,20 +3463,19 @@ impl Editor {
                 self.panes[self.active_pane].h_offset = self.h_offset;
             }
             // Re-parse syntax for this buffer
-            self.syntax.set_language_from_path(&path);
+            let first_line = self.buffer().first_line();
+            self.syntax
+                .set_language_from_path_and_first_line(&path, first_line.as_deref());
             self.parse_current_buffer();
             // Update git diff for this buffer
             self.update_git_diff();
             return Ok(());
         }
 
-        // Set up syntax highlighting based on file extension
-        self.syntax.set_language_from_path(&path);
-
         let new_buffer = if read_only {
-            Buffer::from_file_read_only(path)?
+            Buffer::from_file_read_only(path.clone())?
         } else {
-            Buffer::from_file(path)?
+            Buffer::from_file(path.clone())?
         };
 
         // If current buffer is empty and unnamed, replace it; otherwise add new buffer
@@ -3504,6 +3509,11 @@ impl Editor {
             self.panes[self.active_pane].viewport_offset = self.viewport_offset;
             self.panes[self.active_pane].h_offset = self.h_offset;
         }
+
+        // Set up syntax highlighting from path, then shebang if needed
+        let first_line = self.buffer().first_line();
+        self.syntax
+            .set_language_from_path_and_first_line(&path, first_line.as_deref());
 
         // Parse the buffer for syntax highlighting
         self.parse_current_buffer();
@@ -3573,9 +3583,11 @@ impl Editor {
 
     /// Set the path of the current buffer (for rename operations)
     pub fn set_buffer_path(&mut self, path: std::path::PathBuf) {
-        self.buffers[self.current_buffer_idx].set_file_path(path.clone());
+        self.buffer_mut().set_file_path(path.clone());
         // Update syntax highlighting for new filename
-        self.syntax.set_language_from_path(&path);
+        let first_line = self.buffer().first_line();
+        self.syntax
+            .set_language_from_path_and_first_line(&path, first_line.as_deref());
         self.parse_current_buffer();
     }
 
@@ -10828,7 +10840,9 @@ impl Editor {
         }
 
         // Set up syntax highlighting for the preview file
-        self.preview_syntax.set_language_from_path(&selected_path);
+        let first_line = self.finder.preview_content.first().map(|s| s.as_str());
+        self.preview_syntax
+            .set_language_from_path_and_first_line(&selected_path, first_line);
 
         // Sync theme
         self.preview_syntax.sync_theme(self.theme_manager.theme());
@@ -11203,6 +11217,34 @@ mod tests {
             .expect("system time")
             .as_nanos();
         std::env::temp_dir().join(format!("{}_{}_{}", prefix, std::process::id(), nanos))
+    }
+
+    #[test]
+    fn bashrc_uses_shell_languages_toml_settings() {
+        use crate::config::{FormatterConfig, LanguageConfig, LanguagesConfig};
+        use std::collections::HashMap;
+
+        let mut editor = Editor::default();
+        editor.set_buffer_path(PathBuf::from("/home/me/.bashrc"));
+        editor.languages_config = LanguagesConfig {
+            languages: HashMap::from([(
+                "shell".to_string(),
+                LanguageConfig {
+                    formatter: Some(FormatterConfig {
+                        command: "shfmt".to_string(),
+                        args: vec!["-".to_string()],
+                        timeout: 5,
+                    }),
+                    tab_width: Some(2),
+                },
+            )]),
+        };
+
+        assert_eq!(
+            editor.get_current_formatter().map(|f| f.command.as_str()),
+            Some("shfmt")
+        );
+        assert_eq!(editor.get_effective_tab_width(), 2);
     }
 
     fn commit_file(repo: &git2::Repository, relative_path: &Path, message: &str) {

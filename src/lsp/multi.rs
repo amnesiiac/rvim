@@ -27,6 +27,7 @@ pub enum LanguageId {
     Php,
     Go,
     Ruby,
+    Shell,
 }
 
 impl LanguageId {
@@ -45,12 +46,17 @@ impl LanguageId {
             "php" => Some(Self::Php),
             "go" => Some(Self::Go),
             "rb" | "rake" | "gemspec" | "ru" | "podspec" => Some(Self::Ruby),
+            "sh" | "bash" | "zsh" | "ksh" | "bats" | "ebuild" | "eclass" => Some(Self::Shell),
             _ => None,
         }
     }
 
     /// Detect language from file path
     pub fn from_path(path: &Path) -> Option<Self> {
+        if crate::syntax::is_shell_path(path) {
+            return Some(Self::Shell);
+        }
+
         if Self::is_ruby_path(path) {
             return Some(Self::Ruby);
         }
@@ -58,6 +64,14 @@ impl LanguageId {
         path.extension()
             .and_then(|ext| ext.to_str())
             .and_then(Self::from_extension)
+    }
+
+    pub fn from_path_and_first_line(path: &Path, first_line: Option<&str>) -> Option<Self> {
+        Self::from_path(path).or_else(|| {
+            first_line
+                .filter(|line| crate::syntax::shebang_is_shell(line))
+                .map(|_| Self::Shell)
+        })
     }
 
     fn is_ruby_path(path: &Path) -> bool {
@@ -95,6 +109,7 @@ impl LanguageId {
             Self::Php => "php",
             Self::Go => "go",
             Self::Ruby => "ruby",
+            Self::Shell => "shellscript",
         }
     }
 }
@@ -127,12 +142,26 @@ pub struct MultiLspManager {
     configs: HashMap<LanguageId, LspServerConfig>,
     /// Workspace root for all servers
     workspace_root: PathBuf,
+    /// Shebang-detected languages for extensionless files (cleared on did_close)
+    shebang_languages: HashMap<PathBuf, LanguageId>,
 }
 
 impl MultiLspManager {
     pub fn language_for_path(&self, path: &Path) -> Option<LanguageId> {
-        if let Some(lang) = LanguageId::from_path(path) {
+        self.language_for_path_and_first_line(path, None)
+    }
+
+    pub fn language_for_path_and_first_line(
+        &self,
+        path: &Path,
+        first_line: Option<&str>,
+    ) -> Option<LanguageId> {
+        if let Some(lang) = LanguageId::from_path_and_first_line(path, first_line) {
             return Some(lang);
+        }
+
+        if let Some(lang) = self.shebang_languages.get(path) {
+            return Some(*lang);
         }
 
         let ext = path.extension().and_then(|ext| ext.to_str())?;
@@ -150,6 +179,7 @@ impl MultiLspManager {
             LanguageId::Php,
             LanguageId::Go,
             LanguageId::Ruby,
+            LanguageId::Shell,
         ]
         .into_iter()
         .find(|lang| {
@@ -163,6 +193,16 @@ impl MultiLspManager {
                 })
                 .unwrap_or(false)
         })
+    }
+
+    fn remember_shebang_language(&mut self, path: &Path, first_line: Option<&str>) {
+        if LanguageId::from_path(path).is_some() {
+            return;
+        }
+        if first_line.is_some_and(crate::syntax::shebang_is_shell) {
+            self.shebang_languages
+                .insert(path.to_path_buf(), LanguageId::Shell);
+        }
     }
 
     fn resolve_server_root(&self, lang: LanguageId, file_path: Option<&Path>) -> PathBuf {
@@ -334,6 +374,7 @@ impl MultiLspManager {
         php_config: LspServerConfig,
         go_config: LspServerConfig,
         ruby_config: LspServerConfig,
+        shell_config: LspServerConfig,
     ) -> Self {
         let mut configs = HashMap::new();
         configs.insert(LanguageId::Rust, rust_config);
@@ -348,11 +389,13 @@ impl MultiLspManager {
         configs.insert(LanguageId::Php, php_config);
         configs.insert(LanguageId::Go, go_config);
         configs.insert(LanguageId::Ruby, ruby_config);
+        configs.insert(LanguageId::Shell, shell_config);
 
         Self {
             instances: HashMap::new(),
             configs,
             workspace_root,
+            shebang_languages: HashMap::new(),
         }
     }
 
@@ -414,7 +457,16 @@ impl MultiLspManager {
 
     /// Start a server for a file if needed
     pub fn ensure_server_for_file(&mut self, path: &Path) -> anyhow::Result<Option<LanguageId>> {
-        if let Some(lang) = self.language_for_path(path) {
+        self.ensure_server_for_file_with_first_line(path, None)
+    }
+
+    pub fn ensure_server_for_file_with_first_line(
+        &mut self,
+        path: &Path,
+        first_line: Option<&str>,
+    ) -> anyhow::Result<Option<LanguageId>> {
+        self.remember_shebang_language(path, first_line);
+        if let Some(lang) = self.language_for_path_and_first_line(path, first_line) {
             let Some(config) = self.configs.get(&lang) else {
                 return Ok(None);
             };
@@ -529,8 +581,10 @@ impl MultiLspManager {
 
     /// Send did_open notification to appropriate server
     pub fn did_open(&mut self, path: &PathBuf, text: &str) -> anyhow::Result<()> {
+        let first_line = text.lines().next();
+        self.remember_shebang_language(path, first_line);
         let lang = self
-            .language_for_path(path)
+            .language_for_path_and_first_line(path, first_line)
             .ok_or_else(|| anyhow::anyhow!("Unknown language for {:?}", path))?;
 
         if let Some(instance) = self.get_instance_mut(lang) {
@@ -574,6 +628,7 @@ impl MultiLspManager {
                 }
             }
         }
+        self.shebang_languages.remove(path);
         Ok(())
     }
 
@@ -910,6 +965,7 @@ mod tests {
             servers.php,
             servers.go,
             servers.ruby,
+            servers.shell,
         )
     }
 
@@ -1112,6 +1168,57 @@ mod tests {
         assert_eq!(
             manager.status(Some(Path::new("app/models/user.rb"))),
             "LSP: ruby-lsp not started (ruby)"
+        );
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn shell_paths_route_to_bash_language_server() {
+        let tmp = unique_temp_dir("nevi_lsp_shell_route");
+        let workspace_root = tmp.join("workspace");
+        fs::create_dir_all(&workspace_root).expect("create workspace");
+
+        let mut manager = make_manager(workspace_root);
+
+        assert_eq!(LanguageId::from_extension("sh"), Some(LanguageId::Shell));
+        assert_eq!(LanguageId::from_extension("zsh"), Some(LanguageId::Shell));
+        assert_eq!(
+            LanguageId::from_path(Path::new(".zshrc")),
+            Some(LanguageId::Shell)
+        );
+        assert_eq!(
+            LanguageId::from_path(Path::new(".bashrc")),
+            Some(LanguageId::Shell)
+        );
+        assert_eq!(
+            LanguageId::from_path(Path::new(".bash_profile")),
+            Some(LanguageId::Shell)
+        );
+        assert_eq!(LanguageId::Shell.as_lsp_id(), "shellscript");
+        assert_eq!(
+            manager.language_for_path(Path::new("bin/setup.sh")),
+            Some(LanguageId::Shell)
+        );
+        assert_eq!(
+            manager.language_for_path(Path::new(".zshrc")),
+            Some(LanguageId::Shell)
+        );
+        assert_eq!(
+            manager.language_for_path_and_first_line(
+                Path::new("bin/deploy"),
+                Some("#!/usr/bin/env bash")
+            ),
+            Some(LanguageId::Shell)
+        );
+        manager.remember_shebang_language(Path::new("bin/deploy"), Some("#!/bin/sh"));
+        assert_eq!(
+            manager.language_for_path(Path::new("bin/deploy")),
+            Some(LanguageId::Shell)
+        );
+        assert_eq!(
+            manager.status(Some(Path::new("bin/setup.sh"))),
+            "LSP: bash-language-server not started (shellscript)"
         );
 
         let _ = fs::remove_dir_all(&tmp);

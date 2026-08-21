@@ -522,6 +522,7 @@ fn main() -> anyhow::Result<()> {
             &lsp_servers.php,
             &lsp_servers.go,
             &lsp_servers.ruby,
+            &lsp_servers.shell,
         ] {
             for marker in &cfg.root_patterns {
                 if marker.trim().is_empty() {
@@ -560,6 +561,7 @@ fn main() -> anyhow::Result<()> {
             lsp_servers.php,
             lsp_servers.go,
             lsp_servers.ruby,
+            lsp_servers.shell,
         );
         multi_lsp = Some(mgr);
         editor.set_lsp_status("LSP: (no server)");
@@ -870,7 +872,11 @@ fn main() -> anyhow::Result<()> {
                             if let Some(path) = editor.buffer().path.clone() {
                                 if !mlsp.is_ready_for_file(&path) {
                                     // Try to start server for this file type
-                                    if let Err(e) = mlsp.ensure_server_for_file(&path) {
+                                    let first_line = editor.buffer().first_line();
+                                    if let Err(e) = mlsp.ensure_server_for_file_with_first_line(
+                                        &path,
+                                        first_line.as_deref(),
+                                    ) {
                                         let message = mlsp
                                             .language_for_path(&path)
                                             .map(|lang| {
@@ -1020,7 +1026,11 @@ fn main() -> anyhow::Result<()> {
                             // Try to start server for new file type and open the file
                             if let Some(ref new_path) = current_file {
                                 // Ensure server is started for this file type
-                                match mlsp.ensure_server_for_file(new_path) {
+                                let first_line = editor.buffer().first_line();
+                                match mlsp.ensure_server_for_file_with_first_line(
+                                    new_path,
+                                    first_line.as_deref(),
+                                ) {
                                     Ok(Some(_lang)) => {
                                         editor
                                             .set_lsp_status(mlsp.status(Some(new_path.as_path())));
@@ -1073,9 +1083,13 @@ fn main() -> anyhow::Result<()> {
                                     let uri = lsp::path_to_uri(new_path);
                                     let text = editor.buffer().content();
                                     let version = editor.buffer().version() as i32;
-                                    let lang_id = LanguageId::from_path(new_path)
-                                        .map(|l| l.as_lsp_id().to_string())
-                                        .unwrap_or_else(|| "plaintext".to_string());
+                                    let first_line = editor.buffer().first_line();
+                                    let lang_id = LanguageId::from_path_and_first_line(
+                                        new_path,
+                                        first_line.as_deref(),
+                                    )
+                                    .map(|l| l.as_lsp_id().to_string())
+                                    .unwrap_or_else(|| "plaintext".to_string());
                                     let _ = cop.did_open(&uri, &lang_id, version, &text);
                                 }
                                 // Only update tracking when we actually sent did_open
@@ -1227,9 +1241,13 @@ fn main() -> anyhow::Result<()> {
                                             let source = editor.buffer().content();
 
                                             // Get language ID
-                                            let lang_id = LanguageId::from_path(&path)
-                                                .map(|l| l.as_lsp_id().to_string())
-                                                .unwrap_or_else(|| "plaintext".to_string());
+                                            let first_line = editor.buffer().first_line();
+                                            let lang_id = LanguageId::from_path_and_first_line(
+                                                &path,
+                                                first_line.as_deref(),
+                                            )
+                                            .map(|l| l.as_lsp_id().to_string())
+                                            .unwrap_or_else(|| "plaintext".to_string());
 
                                             // Get relative path
                                             let relative_path = editor
@@ -1857,9 +1875,13 @@ fn main() -> anyhow::Result<()> {
                                         let uri = lsp::path_to_uri(&path);
                                         let text = editor.buffer().content();
                                         let version = editor.buffer().version() as i32;
-                                        let lang_id = LanguageId::from_path(&path)
-                                            .map(|l| l.as_lsp_id().to_string())
-                                            .unwrap_or_else(|| "plaintext".to_string());
+                                        let first_line = editor.buffer().first_line();
+                                        let lang_id = LanguageId::from_path_and_first_line(
+                                            &path,
+                                            first_line.as_deref(),
+                                        )
+                                        .map(|l| l.as_lsp_id().to_string())
+                                        .unwrap_or_else(|| "plaintext".to_string());
                                         let _ = cop.did_open(&uri, &lang_id, version, &text);
                                         copilot_current_file = Some(path);
                                     }

@@ -226,6 +226,11 @@ impl Buffer {
         }
     }
 
+    /// First line including a trailing newline if present.
+    pub fn first_line(&self) -> Option<String> {
+        self.line(0).map(|line| line.chars().collect())
+    }
+
     /// Get the length of a specific line (excluding newline)
     pub fn line_len(&self, idx: usize) -> usize {
         self.line(idx)
