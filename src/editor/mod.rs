@@ -152,6 +152,20 @@ pub enum LspAction {
     RenameSymbol(String),
 }
 
+/// Outcome of formatting the current buffer from `languages.toml` or LSP.
+#[derive(Debug)]
+pub enum BufferFormatOutcome {
+    /// External formatter ran successfully.
+    Applied { command: String, changed: bool },
+    /// No external formatter is configured; request LSP formatting.
+    RequestLsp,
+    /// External formatter was configured but failed.
+    Failed {
+        command: String,
+        error: crate::formatter::FormatterError,
+    },
+}
+
 /// Rectangle representing a screen region
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Rect {
@@ -1685,6 +1699,33 @@ impl Editor {
         let ext = path.extension()?.to_str()?;
         let language = Self::extension_to_language(ext);
         self.languages_config.get_formatter(&language)
+    }
+
+    /// Format the current buffer with `languages.toml`, or request LSP formatting.
+    pub fn format_current_buffer(&mut self) -> BufferFormatOutcome {
+        let Some(formatter_config) = self.get_current_formatter().cloned() else {
+            return BufferFormatOutcome::RequestLsp;
+        };
+
+        let command = formatter_config.command.clone();
+        let content = self.buffer().content();
+        let file_path = self
+            .buffer()
+            .path
+            .as_ref()
+            .map(|path| path.to_string_lossy().to_string())
+            .unwrap_or_default();
+
+        match crate::formatter::format_with_external(&content, &file_path, &formatter_config) {
+            Ok(formatted) => {
+                let changed = formatted != content;
+                if changed {
+                    self.replace_buffer_content_with_undo(&formatted);
+                }
+                BufferFormatOutcome::Applied { command, changed }
+            }
+            Err(error) => BufferFormatOutcome::Failed { command, error },
+        }
     }
 
     /// Get the formatter config for a specific buffer by index (if any)

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.0 - UNRELEASED
+
+Nevi 0.3.0 brings further improvements.
+
+### Highlights
+
+- `:Format` now runs the external formatter from `languages.toml` when one is configured for the current language, and falls back to LSP otherwise.
+
 ## 0.2.0 - 2026-07-07
 
 Nevi 0.2.0 is a feature and performance release focused on making the editor
