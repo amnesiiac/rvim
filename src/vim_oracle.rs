@@ -559,6 +559,48 @@ const MOTION_CASES: &[OracleCase] = &[
         initial_text: "alpha\nbeta\ngamma\n",
         keys: "G[]",
     },
+    // Sticky column (curswant): moving through short/blank lines must come
+    // back out at the original column. Text/keys from issue #227.
+    OracleCase {
+        name: "sticky column up",
+        initial_text: "12\n\n1234\n\n123\n",
+        keys: "jjllkk",
+    },
+    OracleCase {
+        name: "sticky column down",
+        initial_text: "12\n\n1234\n\n123\n",
+        keys: "jjllkkjj",
+    },
+    OracleCase {
+        name: "sticky column round trip",
+        initial_text: "12\n\n1234\n\n123\n",
+        keys: "jjllkkjjjj",
+    },
+    OracleCase {
+        name: "counted sticky column",
+        initial_text: "12\n\n1234\n\n123\n",
+        keys: "jjll2k2j2j",
+    },
+    OracleCase {
+        name: "sticky column reset by horizontal move",
+        initial_text: "12\n\n1234\n\n123\n",
+        keys: "jjllkkhjj",
+    },
+    OracleCase {
+        name: "sticky column reset by edit",
+        initial_text: "12\n\n1234\n\n123\n",
+        keys: "jjllkkxjj",
+    },
+    OracleCase {
+        name: "dollar sticks to line end",
+        initial_text: "abcdef\nab\nabcdef\n",
+        keys: "$jj",
+    },
+    OracleCase {
+        name: "dollar sticky on short middle line",
+        initial_text: "abcdef\nab\nabcdef\n",
+        keys: "$j",
+    },
 ];
 
 const SHORT_VIEWPORT_CASES: &[OracleCase] = &[

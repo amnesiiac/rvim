@@ -7,6 +7,27 @@ pub struct Cursor {
     pub col: usize,
 }
 
+/// Vim `curswant`: the column vertical motions aim for, so `j`/`k` through
+/// short or blank lines come back out at the original column. A `goal` of
+/// `usize::MAX` means "stick to end of line" (set by `$`).
+///
+/// The record stores the cursor/buffer state that produced it and is only
+/// honored while all of it still matches. Any other motion, edit, undo, or
+/// buffer switch changes one of these fields, so the sticky column expires
+/// implicitly instead of requiring explicit clears in every cursor-mutation
+/// path of the editor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DesiredCol {
+    /// Column vertical motions aim for (`usize::MAX` = end of line)
+    pub goal: usize,
+    /// Cursor position when this goal was recorded
+    pub at: Cursor,
+    /// Buffer the goal was recorded in
+    pub buffer_idx: usize,
+    /// Buffer version when recorded; edits bump it and expire the goal
+    pub buffer_version: u64,
+}
+
 impl Cursor {
     pub fn new(line: usize, col: usize) -> Self {
         Self { line, col }
