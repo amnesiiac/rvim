@@ -10994,6 +10994,7 @@ impl Editor {
             Motion::WordEnd
                 | Motion::BigWordEnd
                 | Motion::LineEnd
+                | Motion::LastNonBlank
                 | Motion::FindChar(_)
                 | Motion::FindCharBack(_)
                 | Motion::MatchingBracket

@@ -51,6 +51,10 @@ const KEYBIND_COVERAGE: &[KeybindCoverage] = &[
     vim_oracle("0", "Move to start of line", "line start"),
     vim_oracle("^", "Move to first non-blank character", "first nonblank"),
     vim_oracle("$", "Move to end of line", "line end"),
+    vim_oracle("g_", "Move to last non-blank character", "last non blank"),
+    vim_oracle("|", "Move to column [count]", "to column"),
+    vim_oracle("]]", "Move to next section start", "section forward"),
+    vim_oracle("[[", "Move to previous section start", "section backward"),
     vim_oracle(
         "<CR>",
         "Move to first non-blank of next line",

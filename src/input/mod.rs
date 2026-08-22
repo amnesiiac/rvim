@@ -936,6 +936,7 @@ impl InputState {
             }
             (_, KeyCode::Char('^')) => self.motion_or_operator(Motion::FirstNonBlank, count),
             (_, KeyCode::Char('$')) => self.motion_or_operator(Motion::LineEnd, count),
+            (_, KeyCode::Char('|')) => self.motion_or_operator(Motion::ToColumn, count),
             (_, KeyCode::Char('+')) | (KeyModifiers::NONE, KeyCode::Enter) => {
                 self.motion_or_operator(Motion::NextLineFirstNonBlank, count)
             }
@@ -1426,6 +1427,13 @@ impl InputState {
                 self.reset();
                 action
             }
+            // g_ - move to last non-blank character of the line
+            ('g', KeyModifiers::NONE, KeyCode::Char('_'))
+            | ('g', KeyModifiers::SHIFT, KeyCode::Char('_')) => {
+                let action = self.motion_or_operator(Motion::LastNonBlank, count);
+                self.reset();
+                action
+            }
             // gJ - join lines without space
             ('g', KeyModifiers::SHIFT, KeyCode::Char('J')) => {
                 self.reset();
@@ -1470,6 +1478,18 @@ impl InputState {
             ('[', KeyModifiers::NONE, KeyCode::Char('d')) => {
                 self.reset();
                 KeyAction::PrevDiagnostic
+            }
+            // ]] - go to next section start
+            (']', KeyModifiers::NONE, KeyCode::Char(']')) => {
+                let action = self.motion_or_operator(Motion::SectionForward, count);
+                self.reset();
+                action
+            }
+            // [[ - go to previous section start
+            ('[', KeyModifiers::NONE, KeyCode::Char('[')) => {
+                let action = self.motion_or_operator(Motion::SectionBackward, count);
+                self.reset();
+                action
             }
             // ]h - go to next harpoon file
             (']', KeyModifiers::NONE, KeyCode::Char('h')) => {
@@ -2145,6 +2165,13 @@ mod tests {
         assert_motion(&[key('0')], Motion::LineStart, 1);
         assert_motion(&[key('^')], Motion::FirstNonBlank, 1);
         assert_motion(&[key('$')], Motion::LineEnd, 1);
+        assert_motion(&[key('g'), key('_')], Motion::LastNonBlank, 1);
+        assert_motion(&[key('3'), key('g'), key('_')], Motion::LastNonBlank, 3);
+        assert_motion(&[key('|')], Motion::ToColumn, 1);
+        assert_motion(&[key('5'), key('|')], Motion::ToColumn, 5);
+        assert_motion(&[key(']'), key(']')], Motion::SectionForward, 1);
+        assert_motion(&[key('['), key('[')], Motion::SectionBackward, 1);
+        assert_motion(&[key('2'), key(']'), key(']')], Motion::SectionForward, 2);
         assert_motion(&[key('+')], Motion::NextLineFirstNonBlank, 1);
         assert_motion(&[enter()], Motion::NextLineFirstNonBlank, 1);
         assert_motion(&[key('-')], Motion::PrevLineFirstNonBlank, 1);

@@ -439,6 +439,76 @@ const MOTION_CASES: &[OracleCase] = &[
         initial_text: "alpha beta gamma\n",
         keys: "2w",
     },
+    OracleCase {
+        name: "last non blank",
+        initial_text: "  alpha beta   \n",
+        keys: "g_",
+    },
+    OracleCase {
+        name: "counted last non blank",
+        initial_text: "alpha  \nbeta   \ngamma  \n",
+        keys: "2g_",
+    },
+    OracleCase {
+        name: "last non blank on blank line",
+        initial_text: "alpha\n     \ngamma\n",
+        keys: "jg_",
+    },
+    OracleCase {
+        name: "delete to last non blank",
+        initial_text: "alpha beta   \n",
+        keys: "dg_",
+    },
+    OracleCase {
+        name: "to column",
+        initial_text: "abcdef\n",
+        keys: "4|",
+    },
+    OracleCase {
+        name: "to column default",
+        initial_text: "abcdef\n",
+        keys: "$|",
+    },
+    OracleCase {
+        name: "to column past line end",
+        initial_text: "abc\n",
+        keys: "9|",
+    },
+    OracleCase {
+        name: "delete to column",
+        initial_text: "abcdef\n",
+        keys: "$d3|",
+    },
+    OracleCase {
+        name: "section forward",
+        initial_text: "fn main()\n{\n    body\n}\nfn other()\n{\n    tail\n}\n",
+        keys: "]]",
+    },
+    OracleCase {
+        name: "counted section forward",
+        initial_text: "fn main()\n{\n    body\n}\nfn other()\n{\n    tail\n}\n",
+        keys: "2]]",
+    },
+    OracleCase {
+        name: "section forward without sections",
+        initial_text: "alpha\nbeta\ngamma\n",
+        keys: "]]",
+    },
+    OracleCase {
+        name: "section backward",
+        initial_text: "fn main()\n{\n    body\n}\nfn other()\n{\n    tail\n}\n",
+        keys: "G[[",
+    },
+    OracleCase {
+        name: "counted section backward",
+        initial_text: "fn main()\n{\n    body\n}\nfn other()\n{\n    tail\n}\n",
+        keys: "G2[[",
+    },
+    OracleCase {
+        name: "section backward without sections",
+        initial_text: "alpha\nbeta\ngamma\n",
+        keys: "G[[",
+    },
 ];
 
 const SHORT_VIEWPORT_CASES: &[OracleCase] = &[
