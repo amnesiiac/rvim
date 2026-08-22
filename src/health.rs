@@ -502,6 +502,7 @@ where
         command_tool_health_if_enabled("php", &servers.php, is_command_available),
         command_tool_health_if_enabled("go", &servers.go, is_command_available),
         command_tool_health_if_enabled("ruby", &servers.ruby, is_command_available),
+        command_tool_health_if_enabled("shell", &servers.shell, is_command_available),
     ]
     .into_iter()
     .flatten()
@@ -671,6 +672,7 @@ fn lsp_server_health(settings: &crate::config::Settings) -> Vec<LspServerHealth>
         server_health("php", &servers.php),
         server_health("go", &servers.go),
         server_health("ruby", &servers.ruby),
+        server_health("shell", &servers.shell),
     ]
 }
 

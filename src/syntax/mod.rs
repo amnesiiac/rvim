@@ -60,10 +60,20 @@ impl SyntaxManager {
 
     /// Detect language from file path and set up parser
     pub fn set_language_from_path(&mut self, path: &Path) {
+        self.set_language_from_path_and_first_line(path, None);
+    }
+
+    /// Detect language from path, then the first line (shebang) if the path is unknown.
+    pub fn set_language_from_path_and_first_line(&mut self, path: &Path, first_line: Option<&str>) {
         let extension = path.extension().and_then(|e| e.to_str());
 
         if is_ruby_path(path, extension) {
             self.set_ruby_language();
+            return;
+        }
+
+        if is_shell_path(path) {
+            self.set_shell_language();
             return;
         }
 
@@ -84,32 +94,43 @@ impl SyntaxManager {
             Some("php") => self.set_php_language(),
             Some("go") => self.set_go_language(),
             _ => {
-                self.language = None;
-                self.query = None;
-                self.tree = None;
-                self.source_cache.clear();
-                self.line_start_bytes.clear();
-                self.highlight_cache.borrow_mut().clear();
-                self.cache_version.set(0);
-                self.parse_version = 0;
+                if first_line.is_some_and(shebang_is_shell) {
+                    self.set_shell_language();
+                    return;
+                }
+                self.clear_language();
             }
         }
     }
 
     /// Detect language from optional file path
     pub fn set_language_from_path_option(&mut self, path: Option<&std::path::PathBuf>) {
+        self.set_language_from_path_option_and_first_line(path, None);
+    }
+
+    pub fn set_language_from_path_option_and_first_line(
+        &mut self,
+        path: Option<&std::path::PathBuf>,
+        first_line: Option<&str>,
+    ) {
         if let Some(p) = path {
-            self.set_language_from_path(p);
+            self.set_language_from_path_and_first_line(p, first_line);
+        } else if first_line.is_some_and(shebang_is_shell) {
+            self.set_shell_language();
         } else {
-            self.language = None;
-            self.query = None;
-            self.tree = None;
-            self.source_cache.clear();
-            self.line_start_bytes.clear();
-            self.highlight_cache.borrow_mut().clear();
-            self.cache_version.set(0);
-            self.parse_version = 0;
+            self.clear_language();
         }
+    }
+
+    fn clear_language(&mut self) {
+        self.language = None;
+        self.query = None;
+        self.tree = None;
+        self.source_cache.clear();
+        self.line_start_bytes.clear();
+        self.highlight_cache.borrow_mut().clear();
+        self.cache_version.set(0);
+        self.parse_version = 0;
     }
 
     /// Set up Rust language parser
@@ -462,6 +483,30 @@ impl SyntaxManager {
         }
     }
 
+    /// Set up Bash / POSIX shell language parser
+    fn set_shell_language(&mut self) {
+        let language = tree_sitter_bash::LANGUAGE;
+        match self.parser.set_language(&language.into()) {
+            Ok(()) => {
+                self.language = Some("shell".to_string());
+
+                let query_source = highlighter::shell_highlight_query();
+                match Query::new(&language.into(), query_source) {
+                    Ok(query) => {
+                        self.query = Some(query);
+                    }
+                    Err(e) => {
+                        self.language = Some(format!("shell (query error: {:?})", e));
+                        self.query = None;
+                    }
+                }
+            }
+            Err(e) => {
+                self.language = Some(format!("shell (lang error: {:?})", e));
+            }
+        }
+    }
+
     /// Parse the entire buffer
     pub fn parse(&mut self, buffer: &Buffer) {
         if self.language.is_none() {
@@ -757,6 +802,84 @@ fn is_ruby_path(path: &Path, extension: Option<&str>) -> bool {
     )
 }
 
+/// True when the path is a shell script by extension or a common rc/profile filename.
+pub fn is_shell_path(path: &Path) -> bool {
+    let extension = path.extension().and_then(|e| e.to_str());
+    if matches!(
+        extension,
+        Some("sh" | "bash" | "zsh" | "ksh" | "bats" | "ebuild" | "eclass")
+    ) {
+        return true;
+    }
+
+    is_shell_filename(path)
+}
+
+fn is_shell_filename(path: &Path) -> bool {
+    matches!(
+        path.file_name().and_then(|name| name.to_str()),
+        Some(
+            ".bashrc"
+                | "bashrc"
+                | "bash.bashrc"
+                | ".bashrc.local"
+                | ".bash_profile"
+                | ".bashprofile"
+                | "bash_profile"
+                | ".bash_login"
+                | ".bash_logout"
+                | ".bash_aliases"
+                | ".bash_functions"
+                | ".profile"
+                | "profile"
+                | ".zshrc"
+                | "zshrc"
+                | ".zshrc.local"
+                | ".zshenv"
+                | "zshenv"
+                | ".zprofile"
+                | "zprofile"
+                | ".zlogin"
+                | "zlogin"
+                | ".zlogout"
+                | "zlogout"
+                | ".zaliases"
+                | ".zsh_aliases"
+                | ".kshrc"
+                | ".mkshrc"
+                | ".envrc"
+                | "PKGBUILD"
+                | "APKBUILD"
+        )
+    )
+}
+
+/// True when the first line is a POSIX/bash/zsh shebang (`#!/bin/bash`, `#!/usr/bin/env bash`).
+pub fn shebang_is_shell(first_line: &str) -> bool {
+    matches!(
+        shebang_interpreter(first_line),
+        Some("sh" | "bash" | "dash" | "ash" | "ksh" | "mksh" | "zsh")
+    )
+}
+
+fn shebang_interpreter(first_line: &str) -> Option<&str> {
+    let line = first_line.trim_end_matches(['\r', '\n']);
+    let rest = line.strip_prefix("#!")?.trim();
+    let mut parts = rest.split_whitespace();
+    let command = parts.next()?;
+    let name = Path::new(command).file_name()?.to_str()?;
+    if name.eq_ignore_ascii_case("env") {
+        for arg in parts {
+            if arg.starts_with('-') {
+                continue;
+            }
+            return Path::new(arg).file_name()?.to_str();
+        }
+        return None;
+    }
+    Some(name)
+}
+
 /// Get the line comment string for a language
 /// Returns the comment prefix (e.g., "// " for Rust/JS, "# " for Python)
 pub fn get_comment_string(language: Option<&str>) -> &'static str {
@@ -902,5 +1025,106 @@ mod tests {
     fn php_uses_slash_slash_line_comments() {
         assert_eq!(get_comment_string(Some("php")), "// ");
         assert_eq!(get_comment_end(Some("php")), None);
+    }
+
+    fn parse_shell_snippet(syntax: &mut SyntaxManager) {
+        let mut buffer = Buffer::new();
+        buffer.set_content("if true; then\n  echo hello\nfi\n");
+        syntax.parse(&buffer);
+        assert_eq!(syntax.language_name(), Some("shell"));
+        assert!(syntax.has_highlighting());
+        assert!(
+            !syntax.get_line_highlights(0).is_empty(),
+            "shell files should use Bash syntax highlighting"
+        );
+    }
+
+    #[test]
+    fn sh_extension_uses_shell_highlighting() {
+        let mut syntax = SyntaxManager::new();
+        syntax.set_language_from_path(Path::new("bin/setup.sh"));
+        parse_shell_snippet(&mut syntax);
+    }
+
+    #[test]
+    fn bash_and_zsh_extensions_use_shell_highlighting() {
+        for path in ["script.bash", "script.zsh"] {
+            let mut syntax = SyntaxManager::new();
+            syntax.set_language_from_path(Path::new(path));
+            parse_shell_snippet(&mut syntax);
+        }
+    }
+
+    #[test]
+    fn common_shell_rc_filenames_use_shell_highlighting() {
+        for path in [
+            ".bashrc",
+            ".bash_profile",
+            ".bashprofile",
+            ".zshrc",
+            ".zshenv",
+            ".profile",
+            "PKGBUILD",
+            ".envrc",
+        ] {
+            let mut syntax = SyntaxManager::new();
+            syntax.set_language_from_path(Path::new(path));
+            parse_shell_snippet(&mut syntax);
+        }
+    }
+
+    #[test]
+    fn extensionless_shebang_uses_shell_highlighting() {
+        let mut syntax = SyntaxManager::new();
+        syntax.set_language_from_path_and_first_line(
+            Path::new("bin/deploy"),
+            Some("#!/usr/bin/env bash\n"),
+        );
+        parse_shell_snippet(&mut syntax);
+    }
+
+    #[test]
+    fn env_dash_s_shebang_uses_shell_highlighting() {
+        let mut syntax = SyntaxManager::new();
+        syntax.set_language_from_path_and_first_line(
+            Path::new("bin/deploy"),
+            Some("#!/usr/bin/env -S bash -eu\n"),
+        );
+        parse_shell_snippet(&mut syntax);
+    }
+
+    #[test]
+    fn fish_and_python_shebangs_do_not_use_shell_highlighting() {
+        let mut syntax = SyntaxManager::new();
+        syntax.set_language_from_path_and_first_line(
+            Path::new("bin/deploy"),
+            Some("#!/usr/bin/env fish\n"),
+        );
+        assert_eq!(syntax.language_name(), None);
+
+        syntax.set_language_from_path_and_first_line(
+            Path::new("bin/deploy"),
+            Some("#!/usr/bin/env python3\n"),
+        );
+        assert_eq!(syntax.language_name(), None);
+    }
+
+    #[test]
+    fn path_wins_over_mismatched_shebang() {
+        let mut syntax = SyntaxManager::new();
+        syntax.set_language_from_path_and_first_line(
+            Path::new("main.py"),
+            Some("#!/usr/bin/env bash\n"),
+        );
+        assert_eq!(syntax.language_name(), Some("python"));
+    }
+
+    #[test]
+    fn shebang_is_shell_recognizes_common_interpreters() {
+        assert!(shebang_is_shell("#!/bin/bash"));
+        assert!(shebang_is_shell("#!/bin/sh\n"));
+        assert!(shebang_is_shell("#!/usr/bin/env zsh"));
+        assert!(!shebang_is_shell("#!/usr/bin/env fish"));
+        assert!(!shebang_is_shell("echo hi"));
     }
 }

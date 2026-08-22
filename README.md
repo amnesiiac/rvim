@@ -34,7 +34,7 @@ A fast, native terminal editor where your existing vim/neovim muscle memory just
 
 - **Vim/neovim keybindings** - Most common keybinds implemented, more being added regularly
 - **Built-in LSP** - rust-analyzer, typescript-language-server, pyright, and more
-- **Tree-sitter syntax highlighting** - Fast, accurate highlighting for Rust, Go, Ruby, PHP, TypeScript, JavaScript, Python, CSS, JSON, TOML, HTML, Markdown
+- **Tree-sitter syntax highlighting** - Fast, accurate highlighting for Rust, Go, Ruby, PHP, TypeScript, JavaScript, Python, CSS, JSON, TOML, HTML, Markdown, Bash/shell
 - **Theme selection** - Multiple built-in colorschemes with easy switching
 - **Fuzzy file finder** - Telescope-style file and content search
 - **Previewed project replace** - Project-wide literal replace with a read-only preview and explicit apply step
@@ -179,6 +179,7 @@ Optional tools unlock optional features:
 | PHP LSP | PHP 8.2+ and `phpactor` | `brew install php`, then `mkdir -p ~/.local/bin && curl -Lo phpactor.phar https://github.com/phpactor/phpactor/releases/latest/download/phpactor.phar && chmod +x phpactor.phar && mv phpactor.phar ~/.local/bin/phpactor` |
 | Go LSP | `gopls` | `go install golang.org/x/tools/gopls@latest` |
 | Ruby LSP | `ruby-lsp` | `gem install ruby-lsp` |
+| Shell / Bash LSP | `bash-language-server` | `npm install -g bash-language-server` |
 | Markdown LSP | `marksman` | Optional and disabled by default |
 | External formatters | Whatever formatter you configure | Examples: `biome`, `prettier`, `black`, `gofmt` |
 | Git signs / `:GitChanges` | A Git repository | No external `git` CLI required |
@@ -423,6 +424,7 @@ Visual mode (`v/V/Ctrl+v`), macros (`q{a-z}/@{a-z}`), marks (`m{a-z}/'`), read-o
 | TOML | taplo | Supported |
 | HTML | vscode-html-language-server | Supported |
 | Go | gopls | Supported |
+| Shell / Bash | bash-language-server | Supported |
 | Markdown | marksman | Optional, disabled by default |
 
 LSP servers are auto-detected when installed. See [`~/.config/nevi/config.toml`](#configuration) for LSP configuration options.

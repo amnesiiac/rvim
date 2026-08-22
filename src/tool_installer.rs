@@ -124,6 +124,7 @@ where
         add_lsp_tool(&mut grouped, "php", &servers.php, &is_command_available);
         add_lsp_tool(&mut grouped, "go", &servers.go, &is_command_available);
         add_lsp_tool(&mut grouped, "ruby", &servers.ruby, &is_command_available);
+        add_lsp_tool(&mut grouped, "shell", &servers.shell, &is_command_available);
     }
 
     for (language, config) in &languages_config.languages {
@@ -220,6 +221,9 @@ pub fn install_command_for(command: &str) -> Option<&'static str> {
         ),
         "gopls" | "gopls.exe" => Some("go install golang.org/x/tools/gopls@latest"),
         "ruby-lsp" | "ruby-lsp.cmd" => Some("gem install ruby-lsp"),
+        "bash-language-server" | "bash-language-server.cmd" => {
+            Some("npm install -g bash-language-server")
+        }
         "pylsp" => Some("pipx install python-lsp-server"),
         "biome" | "biome.cmd" => Some("npm install -g @biomejs/biome"),
         "oxfmt" | "oxfmt.cmd" => Some("npm install -g oxfmt"),
@@ -256,6 +260,7 @@ mod tests {
         settings.lsp.servers.php.enabled = false;
         settings.lsp.servers.go.enabled = false;
         settings.lsp.servers.ruby.enabled = false;
+        settings.lsp.servers.shell.enabled = false;
     }
 
     #[test]
@@ -275,6 +280,10 @@ mod tests {
         assert_eq!(
             super::install_command_for("ruby-lsp"),
             Some("gem install ruby-lsp")
+        );
+        assert_eq!(
+            super::install_command_for("bash-language-server"),
+            Some("npm install -g bash-language-server")
         );
         assert_eq!(
             super::install_command_for("phpactor"),
