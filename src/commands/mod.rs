@@ -107,7 +107,7 @@ pub enum Command {
     ToggleExplorer,
     /// :Explore - Open file explorer
     OpenExplorer,
-    /// :Format - Format document using LSP
+    /// :Format - Format document using languages.toml, then LSP
     Format,
     /// :codeaction - Show code actions (LSP)
     CodeAction,

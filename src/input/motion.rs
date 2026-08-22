@@ -28,6 +28,8 @@ pub enum Motion {
     LineStart,             // 0
     FirstNonBlank,         // ^
     LineEnd,               // $
+    LastNonBlank,          // g_ - last non-blank, [count-1] lines downward
+    ToColumn,              // | - to column [count]
     NextLineFirstNonBlank, // +
     PrevLineFirstNonBlank, // -
 
@@ -61,6 +63,10 @@ pub enum Motion {
 
     // Bracket matching
     MatchingBracket, // %
+
+    // Section motions (Vim sections: a '{' in the first column starts a section)
+    SectionForward,  // ]]
+    SectionBackward, // [[
 }
 
 /// Check if a character is a "word" character (alphanumeric or underscore)
@@ -267,6 +273,60 @@ pub fn apply_motion(
             }
             let line_len = buffer.line_len(target_line);
             Some((target_line, line_len.saturating_sub(1)))
+        }
+
+        Motion::LastNonBlank => {
+            // Like $, a count moves [count-1] lines downward first (Vim g_).
+            let target_line = line.checked_add(count.max(1).saturating_sub(1))?;
+            if target_line > last_addressable_line(buffer) {
+                return None;
+            }
+            Some((target_line, find_last_non_blank(buffer, target_line)))
+        }
+
+        Motion::ToColumn => {
+            // Vim | uses screen columns; we use char columns, which differs on tabs.
+            let line_len = buffer.line_len(line);
+            Some((
+                line,
+                count.saturating_sub(1).min(line_len.saturating_sub(1)),
+            ))
+        }
+
+        Motion::SectionForward => {
+            // Vim ]]: to the [count]'th next '{' in column 0, or end of file.
+            let last_line = last_addressable_line(buffer);
+            let mut current = line;
+            for _ in 0..count {
+                match ((current + 1)..=last_line)
+                    .find(|&candidate| buffer.char_at(candidate, 0) == Some('{'))
+                {
+                    Some(section) => current = section,
+                    None => {
+                        current = last_line;
+                        break;
+                    }
+                }
+            }
+            Some((current, 0))
+        }
+
+        Motion::SectionBackward => {
+            // Vim [[: to the [count]'th previous '{' in column 0, or start of file.
+            let mut current = line;
+            for _ in 0..count {
+                match (0..current)
+                    .rev()
+                    .find(|&candidate| buffer.char_at(candidate, 0) == Some('{'))
+                {
+                    Some(section) => current = section,
+                    None => {
+                        current = 0;
+                        break;
+                    }
+                }
+            }
+            Some((current, 0))
         }
 
         Motion::NextLineFirstNonBlank => {
@@ -915,6 +975,18 @@ fn find_word_end(
 fn find_first_non_blank(buffer: &Buffer, line: usize) -> usize {
     let line_len = buffer.line_len(line);
     for c in 0..line_len {
+        if let Some(ch) = buffer.char_at(line, c) {
+            if !ch.is_whitespace() {
+                return c;
+            }
+        }
+    }
+    0
+}
+
+fn find_last_non_blank(buffer: &Buffer, line: usize) -> usize {
+    let line_len = buffer.line_len(line);
+    for c in (0..line_len).rev() {
         if let Some(ch) = buffer.char_at(line, c) {
             if !ch.is_whitespace() {
                 return c;

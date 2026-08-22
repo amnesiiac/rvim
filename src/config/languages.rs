@@ -64,7 +64,7 @@ pub fn languages_config_path() -> Option<PathBuf> {
 fn default_languages_template() -> &'static str {
     r#"# Nevi Language Configuration
 # Configure per-language settings like formatters and tab width.
-# If no formatter is specified, nevi falls back to LSP formatting.
+# If no formatter is specified, :Format and format-on-save fall back to LSP.
 #
 # Placeholder: {file} - replaced with the full file path
 #
