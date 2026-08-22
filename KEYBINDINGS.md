@@ -212,6 +212,7 @@ When specifying keys, use these formats:
 | `$` | Move to end of line |
 | `g_` | Move to last non-blank character (count moves lines down) |
 | `\|` | Move to column [count] |
+| `gM` | Move to middle of the line's text (count is a percentage) |
 | `+` / `Enter` | Move to first non-blank of next line |
 | `-` | Move to first non-blank of previous line |
 | `gj` | Move down by display line when wrap is enabled |
@@ -223,6 +224,8 @@ When specifying keys, use these formats:
 | `}` | Move to next blank line (paragraph) |
 | `[[` | Move to previous section start (`{` in column 0) |
 | `]]` | Move to next section start (`{` in column 0) |
+| `[]` | Move to previous section end (`}` in column 0) |
+| `][` | Move to next section end (`}` in column 0) |
 | `(` | Move to previous sentence |
 | `)` | Move to next sentence |
 

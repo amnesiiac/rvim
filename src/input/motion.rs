@@ -30,6 +30,7 @@ pub enum Motion {
     LineEnd,               // $
     LastNonBlank,          // g_ - last non-blank, [count-1] lines downward
     ToColumn,              // | - to column [count]
+    MiddleOfLine,          // gM - middle of the line's text
     NextLineFirstNonBlank, // +
     PrevLineFirstNonBlank, // -
 
@@ -64,9 +65,12 @@ pub enum Motion {
     // Bracket matching
     MatchingBracket, // %
 
-    // Section motions (Vim sections: a '{' in the first column starts a section)
-    SectionForward,  // ]]
-    SectionBackward, // [[
+    // Section motions (Vim sections: a '{' in the first column starts a
+    // section, a '}' in the first column ends one)
+    SectionForward,     // ]]
+    SectionBackward,    // [[
+    SectionEndForward,  // ][
+    SectionEndBackward, // []
 }
 
 /// Check if a character is a "word" character (alphanumeric or underscore)
@@ -293,6 +297,20 @@ pub fn apply_motion(
             ))
         }
 
+        Motion::MiddleOfLine => {
+            // Vim gM: halfway the text of the line; a count of 2-100 jumps to
+            // that percentage instead. Vim treats a bare 1 as "no count", which
+            // our dispatcher can't distinguish, so 1gM also means halfway.
+            // Char columns, like |, so tabs differ.
+            let line_len = buffer.line_len(line);
+            let target = if (2..=100).contains(&count) {
+                line_len * count / 100
+            } else {
+                line_len / 2
+            };
+            Some((line, target.min(line_len.saturating_sub(1))))
+        }
+
         Motion::SectionForward => {
             // Vim ]]: to the [count]'th next '{' in column 0, or end of file.
             let last_line = last_addressable_line(buffer);
@@ -318,6 +336,42 @@ pub fn apply_motion(
                 match (0..current)
                     .rev()
                     .find(|&candidate| buffer.char_at(candidate, 0) == Some('{'))
+                {
+                    Some(section) => current = section,
+                    None => {
+                        current = 0;
+                        break;
+                    }
+                }
+            }
+            Some((current, 0))
+        }
+
+        Motion::SectionEndForward => {
+            // Vim ][: to the [count]'th next '}' in column 0, or end of file.
+            let last_line = last_addressable_line(buffer);
+            let mut current = line;
+            for _ in 0..count {
+                match ((current + 1)..=last_line)
+                    .find(|&candidate| buffer.char_at(candidate, 0) == Some('}'))
+                {
+                    Some(section) => current = section,
+                    None => {
+                        current = last_line;
+                        break;
+                    }
+                }
+            }
+            Some((current, 0))
+        }
+
+        Motion::SectionEndBackward => {
+            // Vim []: to the [count]'th previous '}' in column 0, or start of file.
+            let mut current = line;
+            for _ in 0..count {
+                match (0..current)
+                    .rev()
+                    .find(|&candidate| buffer.char_at(candidate, 0) == Some('}'))
                 {
                     Some(section) => current = section,
                     None => {

@@ -1434,6 +1434,12 @@ impl InputState {
                 self.reset();
                 action
             }
+            // gM - move to middle of the line's text
+            ('g', KeyModifiers::SHIFT, KeyCode::Char('M')) => {
+                let action = self.motion_or_operator(Motion::MiddleOfLine, count);
+                self.reset();
+                action
+            }
             // gJ - join lines without space
             ('g', KeyModifiers::SHIFT, KeyCode::Char('J')) => {
                 self.reset();
@@ -1488,6 +1494,18 @@ impl InputState {
             // [[ - go to previous section start
             ('[', KeyModifiers::NONE, KeyCode::Char('[')) => {
                 let action = self.motion_or_operator(Motion::SectionBackward, count);
+                self.reset();
+                action
+            }
+            // ][ - go to next section end
+            (']', KeyModifiers::NONE, KeyCode::Char('[')) => {
+                let action = self.motion_or_operator(Motion::SectionEndForward, count);
+                self.reset();
+                action
+            }
+            // [] - go to previous section end
+            ('[', KeyModifiers::NONE, KeyCode::Char(']')) => {
+                let action = self.motion_or_operator(Motion::SectionEndBackward, count);
                 self.reset();
                 action
             }
@@ -2169,9 +2187,22 @@ mod tests {
         assert_motion(&[key('3'), key('g'), key('_')], Motion::LastNonBlank, 3);
         assert_motion(&[key('|')], Motion::ToColumn, 1);
         assert_motion(&[key('5'), key('|')], Motion::ToColumn, 5);
+        assert_motion(&[key('g'), shift('M')], Motion::MiddleOfLine, 1);
+        assert_motion(
+            &[key('2'), key('0'), key('g'), shift('M')],
+            Motion::MiddleOfLine,
+            20,
+        );
         assert_motion(&[key(']'), key(']')], Motion::SectionForward, 1);
         assert_motion(&[key('['), key('[')], Motion::SectionBackward, 1);
         assert_motion(&[key('2'), key(']'), key(']')], Motion::SectionForward, 2);
+        assert_motion(&[key(']'), key('[')], Motion::SectionEndForward, 1);
+        assert_motion(&[key('['), key(']')], Motion::SectionEndBackward, 1);
+        assert_motion(
+            &[key('2'), key(']'), key('[')],
+            Motion::SectionEndForward,
+            2,
+        );
         assert_motion(&[key('+')], Motion::NextLineFirstNonBlank, 1);
         assert_motion(&[enter()], Motion::NextLineFirstNonBlank, 1);
         assert_motion(&[key('-')], Motion::PrevLineFirstNonBlank, 1);

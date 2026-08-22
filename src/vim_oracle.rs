@@ -509,6 +509,56 @@ const MOTION_CASES: &[OracleCase] = &[
         initial_text: "alpha\nbeta\ngamma\n",
         keys: "G[[",
     },
+    OracleCase {
+        name: "middle of line",
+        initial_text: "abcdefgh\n",
+        keys: "gM",
+    },
+    OracleCase {
+        name: "middle of line odd length",
+        initial_text: "abcdefg\n",
+        keys: "gM",
+    },
+    OracleCase {
+        name: "middle of line percent",
+        initial_text: "abcdefghij\n",
+        keys: "20gM",
+    },
+    OracleCase {
+        name: "delete to middle of line",
+        initial_text: "abcdefgh\n",
+        keys: "dgM",
+    },
+    OracleCase {
+        name: "section end forward",
+        initial_text: "fn main()\n{\n    body\n}\nfn other()\n{\n    tail\n}\n",
+        keys: "][",
+    },
+    OracleCase {
+        name: "counted section end forward",
+        initial_text: "fn main()\n{\n    body\n}\nfn other()\n{\n    tail\n}\n",
+        keys: "2][",
+    },
+    OracleCase {
+        name: "section end forward without sections",
+        initial_text: "alpha\nbeta\ngamma\n",
+        keys: "][",
+    },
+    OracleCase {
+        name: "section end backward",
+        initial_text: "fn main()\n{\n    body\n}\nfn other()\n{\n    tail\n}\n",
+        keys: "G[]",
+    },
+    OracleCase {
+        name: "counted section end backward",
+        initial_text: "fn main()\n{\n    body\n}\nfn other()\n{\n    tail\n}\n",
+        keys: "G2[]",
+    },
+    OracleCase {
+        name: "section end backward without sections",
+        initial_text: "alpha\nbeta\ngamma\n",
+        keys: "G[]",
+    },
 ];
 
 const SHORT_VIEWPORT_CASES: &[OracleCase] = &[

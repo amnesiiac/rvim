@@ -7,6 +7,7 @@ Nevi 0.3.0 brings further improvements.
 ### Highlights
 
 - `:Format` now runs the external formatter from `languages.toml` when one is configured for the current language, and falls back to LSP otherwise.
+- Added Vim motions `g_`, `|`, `gM`, `[[`, `]]`, `][`, and `[]`.
 
 ## 0.2.0 - 2026-07-07
 
