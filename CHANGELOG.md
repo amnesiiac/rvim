@@ -7,6 +7,7 @@ Nevi 0.3.0 brings further improvements.
 ### Highlights
 
 - `:Format` now runs the external formatter from `languages.toml` when one is configured for the current language, and falls back to LSP otherwise.
+- Added Vim motions `g_`, `|`, `gM`, `[[`, `]]`, `][`, and `[]`.
 - Added Bash/shell tree-sitter highlighting for `.sh`/`.bash`/`.zsh` files, common rc/profile names (`.bashrc`, `.bash_profile`, `.zshrc`, `PKGBUILD`, …), and shebang detection for extensionless scripts.
 - Added `[lsp.servers.shell]` with `bash-language-server` (same config shape as Go/Ruby).
 
