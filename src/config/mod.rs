@@ -650,6 +650,7 @@ pub struct LspServers {
     pub php: LspServerConfig,
     pub go: LspServerConfig,
     pub ruby: LspServerConfig,
+    pub shell: LspServerConfig,
 }
 
 impl Default for LspServers {
@@ -785,6 +786,22 @@ impl Default for LspServers {
                     "gemspec".to_string(),
                     "ru".to_string(),
                     "podspec".to_string(),
+                ],
+            },
+            shell: LspServerConfig {
+                enabled: true,
+                preset: None,
+                command: "bash-language-server".to_string(),
+                args: vec!["start".to_string()],
+                root_patterns: Vec::new(),
+                file_extensions: vec![
+                    "sh".to_string(),
+                    "bash".to_string(),
+                    "zsh".to_string(),
+                    "ksh".to_string(),
+                    "bats".to_string(),
+                    "ebuild".to_string(),
+                    "eclass".to_string(),
                 ],
             },
         }
@@ -1453,7 +1470,7 @@ fn default_config_template() -> &'static str {
 # LSP servers are auto-detected and enabled by default.
 # Supported: rust-analyzer, typescript-language-server, vscode-css-language-server,
 # vscode-json-language-server, taplo, vscode-html-language-server, pyright-langserver,
-# phpactor, gopls, ruby-lsp
+# phpactor, gopls, ruby-lsp, bash-language-server
 # Optional: marksman for Markdown (disabled by default)
 #
 # To disable LSP entirely:
@@ -1599,6 +1616,7 @@ fn merge_lsp_servers_with_defaults(user: LspServers) -> LspServers {
         php: merge_lsp_server_config(defaults.php, user.php),
         go: merge_lsp_server_config(defaults.go, user.go),
         ruby: merge_lsp_server_config(defaults.ruby, user.ruby),
+        shell: merge_lsp_server_config(defaults.shell, user.shell),
     }
 }
 
@@ -1789,6 +1807,33 @@ mod tests {
                 "gemspec".to_string(),
                 "ru".to_string(),
                 "podspec".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn shell_lsp_defaults_use_bash_language_server() {
+        let settings = Settings::default();
+
+        assert_eq!(
+            settings.lsp.servers.shell.effective_command(),
+            "bash-language-server"
+        );
+        assert_eq!(
+            settings.lsp.servers.shell.effective_args(),
+            vec!["start".to_string()]
+        );
+        assert!(settings.lsp.servers.shell.root_patterns.is_empty());
+        assert_eq!(
+            settings.lsp.servers.shell.file_extensions,
+            vec![
+                "sh".to_string(),
+                "bash".to_string(),
+                "zsh".to_string(),
+                "ksh".to_string(),
+                "bats".to_string(),
+                "ebuild".to_string(),
+                "eclass".to_string()
             ]
         );
     }

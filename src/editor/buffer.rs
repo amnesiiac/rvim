@@ -5,6 +5,9 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+/// Unicode scalar values taken from the first line for shebang detection.
+const FIRST_LINE_PREFIX_CHARS: usize = 256;
+
 /// A text buffer backed by a rope data structure.
 /// Ropes provide O(log n) insertions and deletions, making them
 /// ideal for text editors.
@@ -224,6 +227,13 @@ impl Buffer {
         } else {
             None
         }
+    }
+
+    /// Prefix of the first line, including a trailing newline when it falls
+    /// inside the cap. Capped at [`FIRST_LINE_PREFIX_CHARS`] Unicode scalar values.
+    pub fn first_line_prefix(&self) -> Option<String> {
+        self.line(0)
+            .map(|line| line.chars().take(FIRST_LINE_PREFIX_CHARS).collect())
     }
 
     /// Get the length of a specific line (excluding newline)
@@ -617,6 +627,25 @@ mod tests {
                 "content={content:?}"
             );
         }
+    }
+
+    #[test]
+    fn first_line_prefix_returns_short_first_line_including_newline() {
+        let mut buffer = Buffer::new();
+        buffer.insert_str(0, 0, "#!/usr/bin/env bash\nrest\n");
+        assert_eq!(
+            buffer.first_line_prefix().as_deref(),
+            Some("#!/usr/bin/env bash\n")
+        );
+    }
+
+    #[test]
+    fn first_line_prefix_caps_at_256_chars_not_the_whole_line() {
+        let mut buffer = Buffer::new();
+        buffer.insert_str(0, 0, &"a".repeat(1000));
+        let prefix = buffer.first_line_prefix().expect("first line");
+        assert_eq!(prefix.chars().count(), super::FIRST_LINE_PREFIX_CHARS);
+        assert_eq!(prefix, "a".repeat(super::FIRST_LINE_PREFIX_CHARS));
     }
 
     #[test]

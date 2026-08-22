@@ -176,6 +176,14 @@ fn default_languages_template() -> &'static str {
 # [go]
 # formatter = { command = "gofmt", args = [] }
 # tab_width = 4
+
+# ============================================================================
+# SHELL (shfmt)
+# Install: go install mvdan.cc/sh/v3/cmd/shfmt@latest
+# ============================================================================
+# [shell]
+# formatter = { command = "shfmt", args = ["-filename", "{file}", "-"] }
+# tab_width = 2
 "#
 }
 
