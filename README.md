@@ -442,8 +442,9 @@ Configure formatters in `~/.config/nevi/languages.toml`:
 formatter = { command = "biome", args = ["format", "--stdin-file-path", "{file}"] }
 ```
 
-Formatters are external commands. Nevi only runs a formatter if you configure
-one; otherwise it falls back to LSP formatting when available.
+Formatters are external commands. `:Format` and format-on-save both use a
+configured formatter when one exists for the buffer's language; otherwise they
+fall back to LSP formatting when available.
 
 ## Contributing
 
