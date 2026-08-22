@@ -7,7 +7,7 @@ mod replace;
 mod undo;
 
 pub use buffer::Buffer;
-pub use cursor::Cursor;
+pub use cursor::{Cursor, DesiredCol};
 pub use macros::MacroState;
 pub use marks::{Mark, Marks};
 pub use register::{RegisterContent, Registers};
@@ -193,6 +193,8 @@ pub struct Pane {
     pub buffer_idx: usize,
     /// Cursor position in this pane
     pub cursor: Cursor,
+    /// Vim curswant for vertical motions in this pane (see [`DesiredCol`])
+    pub desired_col: Option<DesiredCol>,
     /// Vertical scroll offset for this pane
     pub viewport_offset: usize,
     /// Horizontal scroll offset for this pane
@@ -210,6 +212,7 @@ impl Pane {
         Self {
             buffer_idx,
             cursor: Cursor::default(),
+            desired_col: None,
             viewport_offset: 0,
             h_offset: 0,
             half_page_scroll_rows: None,
@@ -971,6 +974,8 @@ pub struct Editor {
     split_layout: SplitLayout,
     /// Cursor position (active pane's cursor)
     pub cursor: Cursor,
+    /// Vim curswant for vertical motions (active pane's; see [`DesiredCol`])
+    pub desired_col: Option<DesiredCol>,
     /// Current mode
     pub mode: Mode,
     /// Vertical viewport offset (for scrolling, active pane's viewport)
@@ -1534,6 +1539,7 @@ impl Editor {
             active_pane: 0,
             split_layout: SplitLayout::Vertical,
             cursor: Cursor::default(),
+            desired_col: None,
             mode: Mode::default(),
             viewport_offset: 0,
             h_offset: 0,
@@ -3003,6 +3009,7 @@ impl Editor {
         self.save_current_undo_stack();
         if self.active_pane < self.panes.len() {
             self.panes[self.active_pane].cursor = self.cursor;
+            self.panes[self.active_pane].desired_col = self.desired_col;
             self.panes[self.active_pane].viewport_offset = self.viewport_offset;
             self.panes[self.active_pane].h_offset = self.h_offset;
             self.panes[self.active_pane].buffer_idx = self.current_buffer_idx;
@@ -3013,6 +3020,7 @@ impl Editor {
     fn load_pane_state(&mut self) {
         if self.active_pane < self.panes.len() {
             self.cursor = self.panes[self.active_pane].cursor;
+            self.desired_col = self.panes[self.active_pane].desired_col;
             self.viewport_offset = self.panes[self.active_pane].viewport_offset;
             self.h_offset = self.panes[self.active_pane].h_offset;
             self.current_buffer_idx = self.panes[self.active_pane].buffer_idx;
@@ -10090,6 +10098,24 @@ impl Editor {
                 self.scroll_half_page(false, count);
             }
             _ => {
+                // Vim curswant: j/k aim for the column of the last deliberate
+                // horizontal position, so moving through short/blank lines
+                // comes back out at the original column. Only real cursor
+                // movement gets this — operator ranges (dj, yk) never route
+                // through here.
+                let vertical = matches!(motion, Motion::Up | Motion::Down);
+                let goal = match self.desired_col {
+                    Some(desired)
+                        if vertical
+                            && desired.at == self.cursor
+                            && desired.buffer_idx == self.current_buffer_idx
+                            && desired.buffer_version
+                                == self.buffers[self.current_buffer_idx].version() =>
+                    {
+                        desired.goal
+                    }
+                    _ => self.cursor.col,
+                };
                 // Use standard motion handling
                 if let Some((new_line, new_col)) = apply_motion(
                     &self.buffers[self.current_buffer_idx],
@@ -10100,8 +10126,16 @@ impl Editor {
                     self.active_pane_text_rows(),
                 ) {
                     self.cursor.line = new_line;
-                    self.cursor.col = new_col;
+                    self.cursor.col = if vertical { goal } else { new_col };
                     self.clamp_cursor();
+                    self.desired_col = if vertical {
+                        Some(self.desired_col_record(goal))
+                    } else if matches!(motion, Motion::LineEnd) {
+                        // Vim: after $, vertical motion sticks to end of line.
+                        Some(self.desired_col_record(usize::MAX))
+                    } else {
+                        None
+                    };
                     let reaches_eof = matches!(motion, Motion::FileEnd)
                         || matches!(motion, Motion::GotoLine(_))
                             && self.cursor.line == last_addressable_line(self.buffer());
@@ -10117,6 +10151,16 @@ impl Editor {
                     }
                 }
             }
+        }
+    }
+
+    /// Snapshot the state a sticky column ([`DesiredCol`]) is valid for.
+    fn desired_col_record(&self, goal: usize) -> DesiredCol {
+        DesiredCol {
+            goal,
+            at: self.cursor,
+            buffer_idx: self.current_buffer_idx,
+            buffer_version: self.buffers[self.current_buffer_idx].version(),
         }
     }
 
@@ -12345,6 +12389,65 @@ mod tests {
 
         editor.undo();
         assert_eq!(editor.buffer().content(), "abc\n");
+    }
+
+    // Issue #227: j/k must keep the preferred column (Vim curswant) when
+    // moving through blank/short lines.
+    #[test]
+    fn sticky_column_survives_short_and_blank_lines() {
+        let mut editor = Editor::default();
+        editor.replace_buffer_content("12\n\n1234\n\n123\n");
+        editor.cursor.set(2, 2);
+
+        editor.apply_motion(Motion::Up, 1);
+        editor.apply_motion(Motion::Up, 1);
+        assert_eq!((editor.cursor.line, editor.cursor.col), (0, 1));
+
+        editor.apply_motion(Motion::Down, 1);
+        editor.apply_motion(Motion::Down, 1);
+        assert_eq!((editor.cursor.line, editor.cursor.col), (2, 2));
+
+        editor.apply_motion(Motion::Down, 1);
+        editor.apply_motion(Motion::Down, 1);
+        assert_eq!((editor.cursor.line, editor.cursor.col), (4, 2));
+    }
+
+    #[test]
+    fn sticky_column_expires_when_buffer_is_edited() {
+        let mut editor = Editor::default();
+        editor.replace_buffer_content("12\n\n1234\n\n123\n");
+        editor.cursor.set(2, 2);
+
+        editor.apply_motion(Motion::Up, 1);
+        editor.apply_motion(Motion::Up, 1);
+        assert_eq!((editor.cursor.line, editor.cursor.col), (0, 1));
+
+        // x deletes under the cursor without moving it; the version bump must
+        // expire the sticky column so j starts from the clamped position.
+        editor.delete_char_at();
+        editor.apply_motion(Motion::Down, 1);
+        editor.apply_motion(Motion::Down, 1);
+        assert_eq!((editor.cursor.line, editor.cursor.col), (2, 0));
+    }
+
+    #[test]
+    fn sticky_column_survives_pane_switch() {
+        let mut editor = Editor::default();
+        editor.replace_buffer_content("12\n\n1234\n\n123\n");
+        editor.cursor.set(2, 2);
+
+        editor.apply_motion(Motion::Up, 1);
+        editor.apply_motion(Motion::Up, 1);
+        assert_eq!((editor.cursor.line, editor.cursor.col), (0, 1));
+
+        editor.vsplit(None).expect("vsplit");
+        editor.apply_motion(Motion::Right, 1);
+        editor.next_pane();
+
+        assert_eq!((editor.cursor.line, editor.cursor.col), (0, 1));
+        editor.apply_motion(Motion::Down, 1);
+        editor.apply_motion(Motion::Down, 1);
+        assert_eq!((editor.cursor.line, editor.cursor.col), (2, 2));
     }
 
     #[test]
