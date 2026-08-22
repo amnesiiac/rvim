@@ -872,7 +872,7 @@ fn main() -> anyhow::Result<()> {
                             if let Some(path) = editor.buffer().path.clone() {
                                 if !mlsp.is_ready_for_file(&path) {
                                     // Try to start server for this file type
-                                    let first_line = editor.buffer().first_line();
+                                    let first_line = editor.buffer().first_line_prefix();
                                     if let Err(e) = mlsp.ensure_server_for_file_with_first_line(
                                         &path,
                                         first_line.as_deref(),
@@ -1026,7 +1026,7 @@ fn main() -> anyhow::Result<()> {
                             // Try to start server for new file type and open the file
                             if let Some(ref new_path) = current_file {
                                 // Ensure server is started for this file type
-                                let first_line = editor.buffer().first_line();
+                                let first_line = editor.buffer().first_line_prefix();
                                 match mlsp.ensure_server_for_file_with_first_line(
                                     new_path,
                                     first_line.as_deref(),
@@ -1083,7 +1083,7 @@ fn main() -> anyhow::Result<()> {
                                     let uri = lsp::path_to_uri(new_path);
                                     let text = editor.buffer().content();
                                     let version = editor.buffer().version() as i32;
-                                    let first_line = editor.buffer().first_line();
+                                    let first_line = editor.buffer().first_line_prefix();
                                     let lang_id = LanguageId::from_path_and_first_line(
                                         new_path,
                                         first_line.as_deref(),
@@ -1241,7 +1241,7 @@ fn main() -> anyhow::Result<()> {
                                             let source = editor.buffer().content();
 
                                             // Get language ID
-                                            let first_line = editor.buffer().first_line();
+                                            let first_line = editor.buffer().first_line_prefix();
                                             let lang_id = LanguageId::from_path_and_first_line(
                                                 &path,
                                                 first_line.as_deref(),
@@ -1875,7 +1875,7 @@ fn main() -> anyhow::Result<()> {
                                         let uri = lsp::path_to_uri(&path);
                                         let text = editor.buffer().content();
                                         let version = editor.buffer().version() as i32;
-                                        let first_line = editor.buffer().first_line();
+                                        let first_line = editor.buffer().first_line_prefix();
                                         let lang_id = LanguageId::from_path_and_first_line(
                                             &path,
                                             first_line.as_deref(),

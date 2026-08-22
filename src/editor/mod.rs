@@ -2841,7 +2841,7 @@ impl Editor {
 
     fn sync_syntax_to_current_buffer(&mut self) {
         let syntax_hint = self.buffer().syntax_hint_path().cloned();
-        let first_line = self.buffer().first_line();
+        let first_line = self.buffer().first_line_prefix();
         self.syntax.set_language_from_path_option_and_first_line(
             syntax_hint.as_ref(),
             first_line.as_deref(),
@@ -3504,7 +3504,7 @@ impl Editor {
                 self.panes[self.active_pane].h_offset = self.h_offset;
             }
             // Re-parse syntax for this buffer
-            let first_line = self.buffer().first_line();
+            let first_line = self.buffer().first_line_prefix();
             self.syntax
                 .set_language_from_path_and_first_line(&path, first_line.as_deref());
             self.parse_current_buffer();
@@ -3552,7 +3552,7 @@ impl Editor {
         }
 
         // Set up syntax highlighting from path, then shebang if needed
-        let first_line = self.buffer().first_line();
+        let first_line = self.buffer().first_line_prefix();
         self.syntax
             .set_language_from_path_and_first_line(&path, first_line.as_deref());
 
@@ -3626,7 +3626,7 @@ impl Editor {
     pub fn set_buffer_path(&mut self, path: std::path::PathBuf) {
         self.buffer_mut().set_file_path(path.clone());
         // Update syntax highlighting for new filename
-        let first_line = self.buffer().first_line();
+        let first_line = self.buffer().first_line_prefix();
         self.syntax
             .set_language_from_path_and_first_line(&path, first_line.as_deref());
         self.parse_current_buffer();
