@@ -210,6 +210,8 @@ When specifying keys, use these formats:
 | `0` | Move to start of line (column 0) |
 | `^` | Move to first non-blank character |
 | `$` | Move to end of line |
+| `g_` | Move to last non-blank character (count moves lines down) |
+| `\|` | Move to column [count] |
 | `+` / `Enter` | Move to first non-blank of next line |
 | `-` | Move to first non-blank of previous line |
 | `gj` | Move down by display line when wrap is enabled |
@@ -219,6 +221,8 @@ When specifying keys, use these formats:
 | `g^` | Move to first non-blank of display line when wrap is enabled |
 | `{` | Move to previous blank line (paragraph) |
 | `}` | Move to next blank line (paragraph) |
+| `[[` | Move to previous section start (`{` in column 0) |
+| `]]` | Move to next section start (`{` in column 0) |
 | `(` | Move to previous sentence |
 | `)` | Move to next sentence |
 
