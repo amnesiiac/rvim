@@ -1,3 +1,4 @@
+pub mod key_notation;
 pub mod motion;
 
 pub use motion::{Motion, apply_motion};

@@ -102,6 +102,26 @@ impl Buffer {
         }
     }
 
+    /// Create a named editable virtual buffer (e.g. the macro-lens edit view).
+    pub fn virtual_writable(
+        name: impl Into<String>,
+        content: &str,
+        syntax_hint_path: Option<PathBuf>,
+    ) -> Self {
+        Self {
+            text: Rope::from_str(content),
+            path: None,
+            dirty: false,
+            version: 0,
+            last_mtime: None,
+            kind: BufferKind::Virtual {
+                name: name.into(),
+                read_only: false,
+                syntax_hint_path,
+            },
+        }
+    }
+
     /// Whether this buffer should reject direct content changes.
     pub fn is_read_only(&self) -> bool {
         matches!(

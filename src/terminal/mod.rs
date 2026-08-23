@@ -9967,7 +9967,14 @@ fn rename_file_impl(
 fn execute_command(editor: &mut Editor, cmd: Command) {
     let result = match cmd {
         Command::Write(path) => {
-            if let Some(p) = path {
+            // A macro-edit buffer's `:w` applies the notation to the register
+            // instead of writing a file (it has no path to write to anyway).
+            if path.is_none() && editor.macro_edit_register().is_some() {
+                match editor.save_macro_edit_buffer() {
+                    Ok(message) => CommandResult::Message(message),
+                    Err(error) => CommandResult::Error(error),
+                }
+            } else if let Some(p) = path {
                 // Save as: skip format_on_save for explicit path
                 match editor.save_as(p) {
                     Ok(()) => CommandResult::Ok,
@@ -10030,7 +10037,14 @@ fn execute_command(editor: &mut Editor, cmd: Command) {
         }
 
         Command::ForceWrite(path) => {
-            if let Some(p) = path {
+            // `:w!` in a macro-edit buffer applies the notation, same as `:w` —
+            // force has nothing extra to override for a register.
+            if path.is_none() && editor.macro_edit_register().is_some() {
+                match editor.save_macro_edit_buffer() {
+                    Ok(message) => CommandResult::Message(message),
+                    Err(error) => CommandResult::Error(error),
+                }
+            } else if let Some(p) = path {
                 match editor.save_as_force(p) {
                     Ok(()) => CommandResult::Ok,
                     Err(e) => CommandResult::Error(format!("Error saving: {}", e)),
@@ -10617,6 +10631,18 @@ fn execute_command(editor: &mut Editor, cmd: Command) {
             editor.open_config_defaults_preview();
             CommandResult::Ok
         }
+
+        Command::Macros => {
+            editor.open_macros_view();
+            CommandResult::Ok
+        }
+
+        Command::MacroEdit(register) => match editor.open_macro_edit_buffer(register) {
+            Ok(()) => CommandResult::Message(format!(
+                "Editing macro @{register} (:w applies the notation)"
+            )),
+            Err(message) => CommandResult::Error(message),
+        },
 
         Command::Marks => {
             editor.open_finder_marks();
@@ -14118,6 +14144,136 @@ mod tests {
         assert!(text.contains("Nevi Flight Recorder"));
         assert!(text.contains("handle_key"));
         assert!(text.contains("slow"));
+    }
+
+    #[test]
+    fn macro_edit_write_command_applies_notation_to_register() {
+        use crate::input::key_notation::parse_key_sequence;
+
+        let mut editor = Editor::default();
+
+        execute_command(&mut editor, crate::commands::parse_command("MacroEdit a"));
+        assert_eq!(editor.buffer().display_name(), "[macro-a]");
+        assert!(!editor.buffer().is_read_only());
+
+        editor.replace_buffer_content("0dw<Esc>");
+        editor.buffer_mut().dirty = true;
+        execute_command(&mut editor, Command::Write(None));
+
+        assert_eq!(
+            editor.macros.get_macro('a'),
+            Some(&parse_key_sequence("0dw<Esc>").unwrap())
+        );
+        assert!(!editor.buffer().dirty, ":w must apply and mark clean");
+    }
+
+    #[test]
+    fn macros_command_opens_read_only_overview() {
+        use crate::input::key_notation::parse_key_sequence;
+
+        let mut editor = Editor::default();
+        editor
+            .macros
+            .set_macro('a', parse_key_sequence("ciw<Esc>").unwrap());
+
+        execute_command(&mut editor, crate::commands::parse_command("Macros"));
+
+        assert_eq!(editor.buffer().display_name(), "[macros]");
+        assert!(editor.buffer().is_read_only());
+        assert!(editor.buffer().content().contains("@a  ciw<Esc>"));
+    }
+
+    #[test]
+    fn recorded_macro_shows_in_view_with_real_key_events() {
+        // Record through handle_key so the encoder sees genuine recorded
+        // events (q/register markers excluded), not string-parsed ones.
+        let mut editor = Editor::default();
+        editor.replace_buffer_content("alpha beta\n");
+
+        for k in [key('q'), key('a'), key('d'), key('w'), key('q')] {
+            handle_key(&mut editor, k);
+        }
+        assert_eq!(editor.buffer().content(), "beta\n");
+
+        execute_command(&mut editor, crate::commands::parse_command("Macros"));
+
+        assert!(
+            editor.buffer().content().contains("@a  dw"),
+            "recording markers must not leak into the notation: {}",
+            editor.buffer().content()
+        );
+    }
+
+    #[test]
+    fn edited_macro_replays_through_the_key_pipeline() {
+        use crate::commands::parse_command;
+
+        let mut editor = Editor::default();
+        editor.replace_buffer_content("alpha one\nbeta two\ngamma three\n");
+
+        // Author a macro purely through the lens: edit buffer, :w, back.
+        execute_command(&mut editor, parse_command("MacroEdit a"));
+        editor.replace_buffer_content("0dwj");
+        execute_command(&mut editor, Command::Write(None));
+        execute_command(&mut editor, Command::Prev);
+        assert_eq!(
+            editor.buffer().content(),
+            "alpha one\nbeta two\ngamma three\n"
+        );
+
+        handle_key(&mut editor, key('g'));
+        handle_key(&mut editor, key('g'));
+        handle_key(&mut editor, key('@'));
+        handle_key(&mut editor, key('a'));
+        assert_eq!(editor.buffer().content(), "one\nbeta two\ngamma three\n");
+
+        // `@@` must replay the lens-authored macro as the last executed one.
+        handle_key(&mut editor, key('@'));
+        handle_key(&mut editor, key('@'));
+        assert_eq!(editor.buffer().content(), "one\ntwo\ngamma three\n");
+    }
+
+    #[test]
+    fn force_write_applies_macro_notation_like_write() {
+        use crate::input::key_notation::parse_key_sequence;
+
+        let mut editor = Editor::default();
+        execute_command(&mut editor, crate::commands::parse_command("MacroEdit a"));
+        editor.replace_buffer_content("x");
+        editor.buffer_mut().dirty = true;
+
+        execute_command(&mut editor, Command::ForceWrite(None));
+
+        assert_eq!(
+            editor.macros.get_macro('a'),
+            Some(&parse_key_sequence("x").unwrap())
+        );
+        assert!(!editor.buffer().dirty);
+    }
+
+    #[test]
+    fn write_with_explicit_path_in_macro_buffer_writes_a_file_not_the_register() {
+        let mut editor = Editor::default();
+        execute_command(&mut editor, crate::commands::parse_command("MacroEdit a"));
+        editor.replace_buffer_content("dw");
+
+        let path = std::env::temp_dir().join(format!(
+            "nevi_macro_lens_save_as_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        execute_command(&mut editor, Command::Write(Some(path.clone())));
+
+        assert_eq!(
+            editor.macros.get_macro('a'),
+            None,
+            ":w {{path}} must not touch the register"
+        );
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "dw");
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]

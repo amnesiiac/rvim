@@ -241,6 +241,7 @@ nevi file1.rs file2.rs
 - `:checkhealth` / `:Health` - Open editor health report in a read-only `[health]` buffer
 - `:ToolInstall` / `:LspInstall` - Open missing LSP/tool install guidance in a read-only `[tool-installer]` buffer
 - `:FlightRecorder` / `:WhySlow` - Open recent in-memory timing report in a read-only `[flight-recorder]` buffer
+- `:Macros` / `:MacroEdit {a-z}` - View recorded macros as readable notation, or edit one as text and `:w` it back into its register
 - `:ConfigOpen` / `:config` - Open your user config file
 - `:ConfigDefaults` - View the latest built-in default config in a read-only `[config-defaults]` buffer
 - `:MarkdownPreview` - Open rendered Markdown reader for `.md` files (`j/k`, `Ctrl-d/u`, `g/G`, `q`)
