@@ -601,6 +601,72 @@ const MOTION_CASES: &[OracleCase] = &[
         initial_text: "abcdef\nab\nabcdef\n",
         keys: "$j",
     },
+    // Unmatched-bracket motions: [{ ]} [( ]) jump out of the enclosing
+    // block; nested pairs between cursor and target must cancel out and the
+    // motion must fail in place when nothing encloses the cursor.
+    OracleCase {
+        name: "unmatched open brace",
+        initial_text: "fn main() {\n    if x {\n        inner\n    }\n    tail\n}\n",
+        keys: "2j[{",
+    },
+    OracleCase {
+        name: "counted unmatched open brace",
+        initial_text: "fn main() {\n    if x {\n        inner\n    }\n    tail\n}\n",
+        keys: "2j2[{",
+    },
+    OracleCase {
+        name: "unmatched close brace",
+        initial_text: "fn main() {\n    if x {\n        inner\n    }\n    tail\n}\n",
+        keys: "2j]}",
+    },
+    OracleCase {
+        name: "counted unmatched close brace",
+        initial_text: "fn main() {\n    if x {\n        inner\n    }\n    tail\n}\n",
+        keys: "2j2]}",
+    },
+    OracleCase {
+        name: "unmatched open brace not found",
+        initial_text: "fn main() {\n    if x {\n        inner\n    }\n    tail\n}\n",
+        keys: "[{",
+    },
+    OracleCase {
+        name: "unmatched open brace from open brace",
+        initial_text: "fn main() {\n    if x {\n        inner\n    }\n    tail\n}\n",
+        keys: "j$[{",
+    },
+    OracleCase {
+        name: "unmatched open paren skips nested pair",
+        initial_text: "let x = f(a, (b + c), d);\n",
+        keys: "fd[(",
+    },
+    OracleCase {
+        name: "unmatched close paren skips nested pair",
+        initial_text: "let x = f(a, (b + c), d);\n",
+        keys: "fa])",
+    },
+    OracleCase {
+        name: "unmatched close paren from nested pair",
+        initial_text: "let x = f(a, (b + c), d);\n",
+        keys: "fb])",
+    },
+    OracleCase {
+        name: "delete to unmatched close brace",
+        initial_text: "fn main() {\n    if x {\n        inner\n    }\n    tail\n}\n",
+        keys: "2jd]}",
+    },
+    OracleCase {
+        name: "delete to unmatched open brace",
+        initial_text: "fn main() {\n    if x {\n        inner\n    }\n    tail\n}\n",
+        keys: "2jd[{",
+    },
+    // Pre-existing motion_range bug: an exclusive motion ending in column 1
+    // must stop at the last char of the previous line (Vim :h exclusive)
+    // instead of eating the line break — d} was joining lines.
+    OracleCase {
+        name: "delete to next paragraph keeps line break",
+        initial_text: "aaa bbb\nccc\n\nddd\n",
+        keys: "lld}",
+    },
 ];
 
 const SHORT_VIEWPORT_CASES: &[OracleCase] = &[

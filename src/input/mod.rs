@@ -1509,6 +1509,30 @@ impl InputState {
                 self.reset();
                 action
             }
+            // [{ - go to previous unmatched { (modifier is `_`: shifted char)
+            ('[', _, KeyCode::Char('{')) => {
+                let action = self.motion_or_operator(Motion::UnmatchedOpenBrace, count);
+                self.reset();
+                action
+            }
+            // ]} - go to next unmatched }
+            (']', _, KeyCode::Char('}')) => {
+                let action = self.motion_or_operator(Motion::UnmatchedCloseBrace, count);
+                self.reset();
+                action
+            }
+            // [( - go to previous unmatched (
+            ('[', _, KeyCode::Char('(')) => {
+                let action = self.motion_or_operator(Motion::UnmatchedOpenParen, count);
+                self.reset();
+                action
+            }
+            // ]) - go to next unmatched )
+            (']', _, KeyCode::Char(')')) => {
+                let action = self.motion_or_operator(Motion::UnmatchedCloseParen, count);
+                self.reset();
+                action
+            }
             // ]h - go to next harpoon file
             (']', KeyModifiers::NONE, KeyCode::Char('h')) => {
                 self.reset();
@@ -2201,6 +2225,18 @@ mod tests {
         assert_motion(
             &[key('2'), key(']'), key('[')],
             Motion::SectionEndForward,
+            2,
+        );
+        // Shifted chars may arrive with or without the SHIFT modifier
+        // depending on the terminal, so both must dispatch.
+        assert_motion(&[key('['), key('{')], Motion::UnmatchedOpenBrace, 1);
+        assert_motion(&[key('['), shift('{')], Motion::UnmatchedOpenBrace, 1);
+        assert_motion(&[key(']'), key('}')], Motion::UnmatchedCloseBrace, 1);
+        assert_motion(&[key('['), key('(')], Motion::UnmatchedOpenParen, 1);
+        assert_motion(&[key(']'), key(')')], Motion::UnmatchedCloseParen, 1);
+        assert_motion(
+            &[key('2'), key('['), key('{')],
+            Motion::UnmatchedOpenBrace,
             2,
         );
         assert_motion(&[key('+')], Motion::NextLineFirstNonBlank, 1);

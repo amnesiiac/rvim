@@ -58,6 +58,18 @@ const KEYBIND_COVERAGE: &[KeybindCoverage] = &[
     vim_oracle("[[", "Move to previous section start", "section backward"),
     vim_oracle("][", "Move to next section end", "section end forward"),
     vim_oracle("[]", "Move to previous section end", "section end backward"),
+    vim_oracle("[{", "Move to previous unmatched {", "unmatched open brace"),
+    vim_oracle("]}", "Move to next unmatched }", "unmatched close brace"),
+    vim_oracle(
+        "[(",
+        "Move to previous unmatched (",
+        "unmatched open paren skips nested pair",
+    ),
+    vim_oracle(
+        "])",
+        "Move to next unmatched )",
+        "unmatched close paren skips nested pair",
+    ),
     vim_oracle(
         "<CR>",
         "Move to first non-blank of next line",
