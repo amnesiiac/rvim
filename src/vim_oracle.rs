@@ -667,6 +667,41 @@ const MOTION_CASES: &[OracleCase] = &[
         initial_text: "aaa bbb\nccc\n\nddd\n",
         keys: "lld}",
     },
+    // gm: half a screenwidth right of the screen-line start. Only clamped
+    // (short-line) cases run against nvim — the exact midpoint depends on
+    // the text-area width, which differs between Nevi (line-number chrome)
+    // and headless nvim; the midpoint has a native regression test instead.
+    OracleCase {
+        name: "gm on short line",
+        initial_text: "abc\n",
+        keys: "gm",
+    },
+    OracleCase {
+        name: "gm on short line moves back from end",
+        initial_text: "abcd\n",
+        keys: "$gm",
+    },
+    // go: 1-based byte offset, newlines count, bytes not chars.
+    OracleCase {
+        name: "go to byte",
+        initial_text: "alpha\nbeta\ngamma\n",
+        keys: "12go",
+    },
+    OracleCase {
+        name: "go to first byte",
+        initial_text: "alpha\nbeta\ngamma\n",
+        keys: "Ggo",
+    },
+    OracleCase {
+        name: "go to byte counts bytes not chars",
+        initial_text: "h\u{e9}llo\nworld\n",
+        keys: "8go",
+    },
+    OracleCase {
+        name: "go to byte beyond end clamps",
+        initial_text: "alpha\nbeta\n",
+        keys: "99go",
+    },
 ];
 
 const SHORT_VIEWPORT_CASES: &[OracleCase] = &[

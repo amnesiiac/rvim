@@ -9,12 +9,12 @@ the test suite enforces, so it cannot drift from what is actually verified.
 
 ## Summary
 
-- **327 keybinds implemented** ([KEYBINDINGS.md](KEYBINDINGS.md)), **41 planned** ([KEYBINDS_ROADMAP.md](KEYBINDS_ROADMAP.md))
-- **71 keybinds in the coverage inventory**, each mapped to the automated test that protects it:
-  - 69 verified against real Neovim (v0.11.3) by the Vim oracle
+- **329 keybinds implemented** ([KEYBINDINGS.md](KEYBINDINGS.md)), **39 planned** ([KEYBINDS_ROADMAP.md](KEYBINDS_ROADMAP.md))
+- **73 keybinds in the coverage inventory**, each mapped to the automated test that protects it:
+  - 71 verified against real Neovim (v0.11.3) by the Vim oracle
   - 1 protected by focused Nevi regression tests
   - 1 covered as default-keymap plumbing with dedicated tests
-- **215 oracle cases**: motions (101), editing (56), insert-entry (11), open-line (18), replace (27), undo-redo (2)
+- **221 oracle cases**: motions (107), editing (56), insert-entry (11), open-line (18), replace (27), undo-redo (2)
 - **0 tracked coverage gaps**
 
 ## How the Vim oracle works
@@ -56,6 +56,8 @@ claim protection.
 | `]}` | Move to next unmatched } | `unmatched close brace` |
 | `[(` | Move to previous unmatched ( | `unmatched open paren skips nested pair` |
 | `])` | Move to next unmatched ) | `unmatched close paren skips nested pair` |
+| `gm` | Move to middle of the screen line | `gm on short line` |
+| `go` | Go to [count] byte of the buffer | `go to byte` |
 | `<CR>` | Move to first non-blank of next line | `enter next line first nonblank` |
 | `gg` | Move to start of file | `file top` |
 | `G` | Move to end of file | `file bottom` |
