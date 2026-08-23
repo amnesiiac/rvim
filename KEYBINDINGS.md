@@ -458,6 +458,17 @@ Record and replay sequences of commands.
 
 > **Example:** `qa` starts recording into register `a`. Make your edits, press `q` to stop. Then `@a` replays it. `5@a` replays it 5 times.
 
+### Macro Lens
+
+View and edit recorded macros as readable key notation instead of re-recording.
+
+| Command | Action |
+|---------|--------|
+| `:Macros` | Open all recorded macros as notation in a read-only `[macros]` buffer |
+| `:MacroEdit {a-z}` | Edit one register's notation in a `[macro-{register}]` scratch buffer; `:w` applies it back to the register (empty content clears it) |
+
+> **Example:** after recording `qa`…`q`, run `:Macros` to see `@a  0f,ci"hello<Esc>j`. Typo in the macro? `:MacroEdit a`, fix the notation like any text, `:w`, and `@a` replays the corrected version. Newlines in the edit buffer are ignored, so long macros can be wrapped; a literal Enter is written as `<CR>`.
+
 ---
 
 ## Insert Mode

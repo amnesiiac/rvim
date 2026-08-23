@@ -18,6 +18,7 @@ pub mod input;
 mod keybind_coverage;
 pub mod labeled_jump;
 pub mod lsp;
+pub mod macro_lens;
 pub mod markdown_preview;
 #[cfg(test)]
 mod parity_report;
