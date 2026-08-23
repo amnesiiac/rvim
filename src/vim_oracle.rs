@@ -1,6 +1,7 @@
 use crate::editor::{Editor, Mode};
+use crate::input::key_notation::parse_key_sequence;
 use crate::terminal::handle_key;
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::KeyEvent;
 use std::path::PathBuf;
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -817,71 +818,6 @@ pub(crate) fn has_oracle_case(name: &str) -> bool {
         .iter()
         .flat_map(|category| category.cases)
         .any(|case| case.name == name)
-}
-
-fn parse_key_sequence(input: &str) -> Result<Vec<KeyEvent>, String> {
-    let mut keys = Vec::new();
-    let mut chars = input.chars().peekable();
-
-    while let Some(ch) = chars.next() {
-        if ch == '<' {
-            let mut token = String::new();
-            let mut closed = false;
-            for token_ch in chars.by_ref() {
-                if token_ch == '>' {
-                    closed = true;
-                    break;
-                }
-                token.push(token_ch);
-            }
-
-            if !closed {
-                return Err(format!("unterminated key token in `{input}`"));
-            }
-
-            keys.push(parse_key_token(&token)?);
-        } else {
-            keys.push(char_key(ch));
-        }
-    }
-
-    Ok(keys)
-}
-
-fn parse_key_token(token: &str) -> Result<KeyEvent, String> {
-    let lower = token.to_ascii_lowercase();
-    match lower.as_str() {
-        "esc" => Ok(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
-        "cr" | "enter" | "return" => Ok(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
-        "tab" => Ok(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)),
-        "bs" | "backspace" => Ok(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE)),
-        "left" => Ok(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE)),
-        "right" => Ok(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE)),
-        "up" => Ok(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)),
-        "down" => Ok(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)),
-        "space" => Ok(char_key(' ')),
-        "lt" => Ok(char_key('<')),
-        _ => {
-            if let Some(control) = lower
-                .strip_prefix("c-")
-                .or_else(|| lower.strip_prefix("ctrl-"))
-            {
-                let mut chars = control.chars();
-                if let (Some(ch), None) = (chars.next(), chars.next()) {
-                    return Ok(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::CONTROL));
-                }
-            }
-            Err(format!("unsupported key token `<{token}>`"))
-        }
-    }
-}
-
-fn char_key(ch: char) -> KeyEvent {
-    if ch.is_ascii_uppercase() {
-        KeyEvent::new(KeyCode::Char(ch), KeyModifiers::SHIFT)
-    } else {
-        KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE)
-    }
 }
 
 fn run_nevi_case(case: &OracleCase) -> Result<EditorSnapshot, String> {

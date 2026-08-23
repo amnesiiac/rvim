@@ -58,6 +58,26 @@ impl MacroState {
         self.macros.get(&register)
     }
 
+    /// Replace a macro's keys directly (macro-lens editing); empty clears it.
+    pub fn set_macro(&mut self, register: char, keys: Vec<KeyEvent>) {
+        if keys.is_empty() {
+            self.macros.remove(&register);
+        } else {
+            self.macros.insert(register, keys);
+        }
+    }
+
+    /// All recorded macros, sorted by register for stable display.
+    pub fn recorded(&self) -> Vec<(char, &[KeyEvent])> {
+        let mut entries: Vec<(char, &[KeyEvent])> = self
+            .macros
+            .iter()
+            .map(|(register, keys)| (*register, keys.as_slice()))
+            .collect();
+        entries.sort_by_key(|(register, _)| *register);
+        entries
+    }
+
     /// Get the last executed macro register
     pub fn last_executed(&self) -> Option<char> {
         self.last_executed

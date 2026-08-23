@@ -167,6 +167,10 @@ pub enum Command {
     ConfigOpen,
     /// :ConfigDefaults - Open the latest default config template
     ConfigDefaults,
+    /// :Macros - Open recorded macros as readable notation
+    Macros,
+    /// :MacroEdit {register} - Edit a macro's notation in a scratch buffer
+    MacroEdit(char),
     /// :marks - Show all marks
     Marks,
     /// :delmarks {marks} - Delete specified marks
@@ -682,6 +686,18 @@ const COMMAND_SPECS: &[CommandSpec] = &[
         takes_args: false,
     },
     CommandSpec {
+        command: "Macros",
+        aliases: &["macros"],
+        description: "Open recorded macros as readable notation",
+        takes_args: false,
+    },
+    CommandSpec {
+        command: "MacroEdit",
+        aliases: &["macroedit"],
+        description: "Edit a macro register's notation (:MacroEdit a)",
+        takes_args: true,
+    },
+    CommandSpec {
         command: "marks",
         aliases: &[],
         description: "Show all marks",
@@ -1123,6 +1139,20 @@ pub fn parse_command(input: &str) -> Command {
         "Jump" | "jump" => Command::Jump,
         "ConfigOpen" | "configopen" | "config" | "ConfigEdit" | "configedit" => Command::ConfigOpen,
         "ConfigDefaults" | "configdefaults" | "defaults" => Command::ConfigDefaults,
+
+        // Macro lens commands
+        "Macros" | "macros" => Command::Macros,
+        "MacroEdit" | "macroedit" => {
+            if let Some(arg) = args.filter(|s| !s.is_empty()) {
+                let mut chars = arg.chars();
+                match (chars.next(), chars.next()) {
+                    (Some(register), None) => Command::MacroEdit(register),
+                    _ => Command::Unknown("MacroEdit: register must be one letter a-z".to_string()),
+                }
+            } else {
+                Command::Unknown("MacroEdit: missing register (a-z)".to_string())
+            }
+        }
 
         // Marks commands
         "marks" => Command::Marks,
@@ -1914,6 +1944,22 @@ mod tests {
         assert!(matches!(parse_command("GitChanges"), Command::GitChanges));
         assert!(matches!(parse_command("changes"), Command::GitChanges));
         assert!(matches!(parse_command("gc"), Command::GitChanges));
+    }
+
+    #[test]
+    fn parses_macro_lens_commands() {
+        assert!(matches!(parse_command("Macros"), Command::Macros));
+        assert!(matches!(parse_command("macros"), Command::Macros));
+        assert!(matches!(
+            parse_command("MacroEdit a"),
+            Command::MacroEdit('a')
+        ));
+        assert!(matches!(
+            parse_command("macroedit q"),
+            Command::MacroEdit('q')
+        ));
+        assert!(matches!(parse_command("MacroEdit"), Command::Unknown(_)));
+        assert!(matches!(parse_command("MacroEdit ab"), Command::Unknown(_)));
     }
 
     #[test]

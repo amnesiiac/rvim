@@ -1861,6 +1861,72 @@ impl Editor {
         );
     }
 
+    /// Open the macro-lens overview: every recorded register as vim notation.
+    pub fn open_macros_view(&mut self) {
+        let entries: Vec<(char, Result<String, String>)> = self
+            .macros
+            .recorded()
+            .into_iter()
+            .map(|(register, keys)| {
+                (
+                    register,
+                    crate::input::key_notation::encode_key_sequence(keys),
+                )
+            })
+            .collect();
+        let content = crate::macro_lens::render_macros_view(&entries);
+        self.open_virtual_read_only_buffer(
+            crate::macro_lens::MACROS_VIEW_BUFFER_NAME,
+            &content,
+            Some("macros.md"),
+        );
+    }
+
+    /// Open one macro register for editing as notation in a scratch buffer.
+    /// An empty register opens empty, so new macros can be written from scratch.
+    pub fn open_macro_edit_buffer(&mut self, register: char) -> Result<(), String> {
+        if !MacroState::is_valid_register(register) {
+            return Err(format!("Invalid macro register `{register}` (use a-z)"));
+        }
+        if self.macros.is_recording() {
+            return Err("Cannot edit a macro while recording".to_string());
+        }
+        let notation = match self.macros.get_macro(register) {
+            Some(keys) => crate::input::key_notation::encode_key_sequence(keys)
+                .map_err(|reason| format!("Macro @{register} cannot be edited: {reason}"))?,
+            None => String::new(),
+        };
+        self.open_virtual_writable_buffer(
+            crate::macro_lens::edit_buffer_name(register),
+            &notation,
+            None,
+        );
+        Ok(())
+    }
+
+    /// Register behind the current buffer if it is a macro-edit buffer.
+    pub fn macro_edit_register(&self) -> Option<char> {
+        crate::macro_lens::register_from_edit_buffer_name(&self.buffer().display_name())
+    }
+
+    /// `:w` in a macro-edit buffer: parse the notation back into the register.
+    /// The buffer stays dirty on parse errors so unsaved work isn't misreported.
+    pub fn save_macro_edit_buffer(&mut self) -> Result<String, String> {
+        let register = self
+            .macro_edit_register()
+            .ok_or_else(|| "Not a macro edit buffer".to_string())?;
+        let notation = crate::macro_lens::notation_from_edit_content(&self.buffer().content());
+        let keys = crate::input::key_notation::parse_key_sequence(&notation)?;
+        let message = if keys.is_empty() {
+            format!("Macro @{register} cleared")
+        } else {
+            format!("Macro @{register} updated ({} keys)", keys.len())
+        };
+        self.macros.set_macro(register, keys);
+        self.buffer_mut().dirty = false;
+        Ok(message)
+    }
+
     /// Build a project-wide replace preview and open it as a read-only buffer.
     pub fn preview_project_replace(
         &mut self,
@@ -1985,6 +2051,24 @@ impl Editor {
             content,
             syntax_hint_path.map(std::path::PathBuf::from),
         );
+        self.open_virtual_buffer(new_buffer);
+    }
+
+    pub fn open_virtual_writable_buffer(
+        &mut self,
+        name: impl Into<String>,
+        content: &str,
+        syntax_hint_path: Option<&str>,
+    ) {
+        let new_buffer = Buffer::virtual_writable(
+            name,
+            content,
+            syntax_hint_path.map(std::path::PathBuf::from),
+        );
+        self.open_virtual_buffer(new_buffer);
+    }
+
+    fn open_virtual_buffer(&mut self, new_buffer: Buffer) {
         self.markdown_preview = None;
 
         if self.buffers[self.current_buffer_idx].is_empty()
@@ -11316,6 +11400,7 @@ mod tests {
     mod editing_operators;
     mod file_lifecycle;
     mod insert_entry;
+    mod macro_lens;
     mod open_line;
     mod replace;
     mod screen_position;
