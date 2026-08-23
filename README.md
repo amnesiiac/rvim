@@ -24,7 +24,7 @@ A fast, native terminal editor where your existing vim/neovim muscle memory just
 | Helix | Kakoune-style | Yes | Different keybind philosophy |
 | **Nevi** | In Progress | Yes | Aiming for full vim compatibility |
 
-> **Note:** Nevi is under active development. Most common vim keybindings are implemented, with more being added regularly. See [Keybindings](#keybindings) for current status.
+> **Note:** Nevi is under active development. Most common vim keybindings are implemented, with more being added regularly. See [Keybindings](#keybindings) for current status. For test-backed compatibility numbers, see the generated [Parity Scoreboard](PARITY.md).
 
 ## Features
 
@@ -456,6 +456,10 @@ Contributions are welcome! Please feel free to submit issues and pull requests.
 - [Request a feature](https://github.com/anthonyamaro15/nevi/issues)
 
 ### Vim/Neovim Parity Checks
+
+The generated [Parity Scoreboard](PARITY.md) lists every keybind the oracle and
+regression suites verify; it is kept in sync by a test and regenerated with
+`NEVI_UPDATE_PARITY=1 cargo test parity_report`.
 
 Nevi includes a test-only Vim oracle harness for checking selected key sequences
 against headless Neovim. The suite covers grouped deterministic motion, editing,

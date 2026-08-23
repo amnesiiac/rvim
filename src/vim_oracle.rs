@@ -770,6 +770,13 @@ fn oracle_categories() -> &'static [OracleCategory] {
     ORACLE_CATEGORIES
 }
 
+/// (category name, case count) pairs, consumed by the generated parity scoreboard.
+pub(crate) fn oracle_case_counts() -> impl Iterator<Item = (&'static str, usize)> {
+    oracle_categories()
+        .iter()
+        .map(|category| (category.name, category.cases.len()))
+}
+
 pub(crate) fn has_oracle_case(name: &str) -> bool {
     oracle_categories()
         .iter()
