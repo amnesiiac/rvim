@@ -9,6 +9,8 @@ pub mod finder;
 pub mod floating_terminal;
 pub mod formatter;
 pub mod frecency;
+#[cfg(test)]
+mod fuzz;
 pub mod git;
 pub mod harpoon;
 pub mod health;

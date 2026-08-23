@@ -283,4 +283,17 @@ pub(super) const EDITING_CASES: &[OracleCase] = &[
         initial_text: "abcd\n",
         keys: "x2gP",
     },
+    // Fuzz-found: J/gJ on the last line must be a no-op. The old guard
+    // counted the trailing rope sentinel as a joinable line and silently
+    // deleted the file's final newline.
+    OracleCase {
+        name: "join on last line is a no-op",
+        initial_text: "alpha\nbeta\n",
+        keys: "GJ",
+    },
+    OracleCase {
+        name: "join without space on last line is a no-op",
+        initial_text: "alpha\nbeta\n",
+        keys: "GgJ",
+    },
 ];
