@@ -220,6 +220,7 @@ When specifying keys, use these formats:
 | `g0` | Move to start of display line when wrap is enabled |
 | `g$` | Move to end of display line when wrap is enabled |
 | `g^` | Move to first non-blank of display line when wrap is enabled |
+| `gm` | Move to middle of the screen line |
 | `{` | Move to previous blank line (paragraph) |
 | `}` | Move to next blank line (paragraph) |
 | `[[` | Move to previous section start (`{` in column 0) |
@@ -240,6 +241,7 @@ When specifying keys, use these formats:
 | `gg` | Move to start of file |
 | `G` | Move to end of file |
 | `{n}G` | Move to line n (e.g., `50G` goes to line 50) |
+| `{n}go` | Go to byte n of the file |
 | `%` | Jump to matching bracket `()`, `{}`, `[]` |
 
 ### Screen Movement

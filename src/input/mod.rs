@@ -1354,6 +1354,18 @@ impl InputState {
                 self.reset();
                 action
             }
+            // gm - move to middle of the screen line
+            ('g', KeyModifiers::NONE, KeyCode::Char('m')) => {
+                let action = self.motion_or_operator(Motion::DisplayLineMiddle, count);
+                self.reset();
+                action
+            }
+            // go - go to [count] byte of the buffer
+            ('g', KeyModifiers::NONE, KeyCode::Char('o')) => {
+                let action = self.motion_or_operator(Motion::GoToByte, count);
+                self.reset();
+                action
+            }
             // gn - search forward and select match
             ('g', KeyModifiers::NONE, KeyCode::Char('n')) => {
                 self.reset();
@@ -2212,6 +2224,13 @@ mod tests {
         assert_motion(&[key('|')], Motion::ToColumn, 1);
         assert_motion(&[key('5'), key('|')], Motion::ToColumn, 5);
         assert_motion(&[key('g'), shift('M')], Motion::MiddleOfLine, 1);
+        assert_motion(&[key('g'), key('m')], Motion::DisplayLineMiddle, 1);
+        assert_motion(&[key('g'), key('o')], Motion::GoToByte, 1);
+        assert_motion(
+            &[key('4'), key('2'), key('g'), key('o')],
+            Motion::GoToByte,
+            42,
+        );
         assert_motion(
             &[key('2'), key('0'), key('g'), shift('M')],
             Motion::MiddleOfLine,

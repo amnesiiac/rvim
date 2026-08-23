@@ -77,6 +77,13 @@ pub enum Motion {
     UnmatchedCloseBrace, // ]}
     UnmatchedOpenParen,  // [(
     UnmatchedCloseParen, // ])
+
+    // gm - middle of the screen line (handled in Editor::apply_motion where
+    // pane width is available, like the other display-line motions)
+    DisplayLineMiddle,
+
+    // go - go to the [count]'th byte of the buffer (1-based, default 1)
+    GoToByte,
 }
 
 /// Check if a character is a "word" character (alphanumeric or underscore)
@@ -387,6 +394,19 @@ pub fn apply_motion(
                 }
             }
             Some((current, 0))
+        }
+
+        Motion::DisplayLineMiddle => {
+            // Screen-aware handling lives in Editor::apply_motion; operator
+            // ranges would need the pane width, so the motion fails there
+            // rather than computing a wrong range.
+            None
+        }
+
+        Motion::GoToByte => {
+            // Vim go: cursor to the [count]'th byte, newlines included.
+            let (target_line, target_col) = buffer.byte_to_line_col(count.saturating_sub(1));
+            Some((target_line, target_col))
         }
 
         Motion::UnmatchedOpenBrace => find_unmatched_backward(buffer, line, col, '{', '}', count),

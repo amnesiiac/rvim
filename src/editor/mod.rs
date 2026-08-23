@@ -129,6 +129,7 @@ enum DisplayLineTarget {
     Start,
     End,
     FirstNonBlank,
+    Middle,
 }
 
 /// Pending LSP action requested by key handler
@@ -10085,6 +10086,9 @@ impl Editor {
             Motion::DisplayLineFirstNonBlank => {
                 self.move_to_display_line_position(DisplayLineTarget::FirstNonBlank);
             }
+            Motion::DisplayLineMiddle => {
+                self.move_to_display_line_position(DisplayLineTarget::Middle);
+            }
             Motion::PageDown if !self.settings.editor.wrap => {
                 self.scroll_full_page(true, count);
             }
@@ -10498,10 +10502,21 @@ impl Editor {
 
     fn move_to_display_line_position(&mut self, target: DisplayLineTarget) {
         if !self.settings.editor.wrap || self.effective_wrap_width() == 0 {
+            // Vim gm: half a screenwidth right of the screen-line start, or
+            // as much as possible. No pure-motion fallback exists because
+            // the target depends on the pane's text width.
+            if let DisplayLineTarget::Middle = target {
+                self.cursor.col = self.h_offset + self.text_area_width() / 2;
+                self.clamp_cursor();
+                self.scroll_to_cursor();
+                return;
+            }
             let fallback = match target {
                 DisplayLineTarget::Start => Motion::LineStart,
                 DisplayLineTarget::End => Motion::LineEnd,
-                DisplayLineTarget::FirstNonBlank => Motion::FirstNonBlank,
+                DisplayLineTarget::FirstNonBlank | DisplayLineTarget::Middle => {
+                    Motion::FirstNonBlank
+                }
             };
             if let Some((new_line, new_col)) = apply_motion(
                 &self.buffers[self.current_buffer_idx],
@@ -10538,6 +10553,11 @@ impl Editor {
             DisplayLineTarget::End => segment.end_col.saturating_sub(1),
             DisplayLineTarget::FirstNonBlank => {
                 Self::display_line_first_non_blank_col(&current_text, segment, tab_width)
+            }
+            // gm: half a screenwidth right of the display-line start,
+            // clamped to the segment (Vim: "or as much as possible").
+            DisplayLineTarget::Middle => {
+                Self::display_col_to_buffer_col(&current_text, segment, wrap_width / 2, tab_width)
             }
         };
         self.clamp_cursor();
@@ -12392,6 +12412,36 @@ mod tests {
 
         editor.undo();
         assert_eq!(editor.buffer().content(), "abc\n");
+    }
+
+    // gm targets half the pane's text-area width; the oracle only covers
+    // clamped short-line cases because nvim's text width differs, so the
+    // exact midpoint is pinned here with a known editor size.
+    #[test]
+    fn gm_moves_to_middle_of_screen_line() {
+        let mut editor = Editor::default();
+        editor.set_size(80, 24);
+        editor.replace_buffer_content(&"x".repeat(200));
+
+        editor.apply_motion(Motion::DisplayLineMiddle, 1);
+        // 80 wide - sign column (2) - line numbers (3) - gap (1) = 74 → 37
+        assert_eq!(editor.text_area_width(), 74);
+        assert_eq!((editor.cursor.line, editor.cursor.col), (0, 37));
+    }
+
+    #[test]
+    fn gm_targets_current_display_segment_when_wrapped() {
+        let mut editor = Editor::default();
+        editor.set_size(80, 24);
+        editor.settings.editor.wrap = true;
+        editor.settings.editor.wrap_width = 9_999;
+        editor.replace_buffer_content(&"x".repeat(200));
+        editor.cursor.set(0, 100);
+
+        // Cursor sits in the second 74-wide segment (cols 74..148); gm goes
+        // to that segment's start + half a screenwidth.
+        editor.apply_motion(Motion::DisplayLineMiddle, 1);
+        assert_eq!((editor.cursor.line, editor.cursor.col), (0, 74 + 37));
     }
 
     // Issue #227: j/k must keep the preferred column (Vim curswant) when

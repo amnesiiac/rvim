@@ -399,6 +399,18 @@ impl Buffer {
         }
     }
 
+    /// Convert a 0-based byte offset to (line, col), clamping to the last
+    /// byte. A byte inside a multibyte char resolves to that char (Vim go).
+    pub fn byte_to_line_col(&self, byte: usize) -> (usize, usize) {
+        if self.text.len_bytes() == 0 {
+            return (0, 0);
+        }
+        let byte = byte.min(self.text.len_bytes() - 1);
+        let ch = self.text.byte_to_char(byte);
+        let line = self.text.char_to_line(ch);
+        (line, ch - self.text.line_to_char(line))
+    }
+
     /// Check if buffer is empty
     pub fn is_empty(&self) -> bool {
         self.text.len_chars() == 0
@@ -605,6 +617,22 @@ mod tests {
             .expect("system time")
             .as_nanos();
         std::env::temp_dir().join(format!("{}_{}_{}", prefix, std::process::id(), nanos))
+    }
+
+    #[test]
+    fn byte_to_line_col_counts_bytes_and_clamps() {
+        let mut buffer = Buffer::new();
+        buffer.set_content("h\u{e9}llo\nworld\n");
+        assert_eq!(buffer.byte_to_line_col(0), (0, 0));
+        // Byte 2 is the second byte of the 2-byte 'é' → resolves to 'é'.
+        assert_eq!(buffer.byte_to_line_col(2), (0, 1));
+        // 'é' shifts bytes vs chars: byte 7 is 'w', char col 0 of line 1.
+        assert_eq!(buffer.byte_to_line_col(7), (1, 0));
+        // Past the end clamps to the last byte (the trailing newline).
+        assert_eq!(buffer.byte_to_line_col(999), (1, 5));
+
+        let empty = Buffer::new();
+        assert_eq!(empty.byte_to_line_col(5), (0, 0));
     }
 
     #[test]

@@ -71,6 +71,12 @@ const KEYBIND_COVERAGE: &[KeybindCoverage] = &[
         "unmatched close paren skips nested pair",
     ),
     vim_oracle(
+        "gm",
+        "Move to middle of the screen line",
+        "gm on short line",
+    ),
+    vim_oracle("go", "Go to [count] byte of the buffer", "go to byte"),
+    vim_oracle(
         "<CR>",
         "Move to first non-blank of next line",
         "enter next line first nonblank",

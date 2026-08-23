@@ -4,7 +4,7 @@ Nevi aims for full vim/neovim keybind compatibility. Defaults follow Neovim, and
 keybinds are configurable — sensible defaults out of the box, overridable to your
 own taste.
 
-**Status: 327 keybinds implemented, 41 planned Vim/Neovim parity defaults.**
+**Status: 329 keybinds implemented, 39 planned Vim/Neovim parity defaults.**
 
 This file tracks what's **planned** (not yet implemented). For the full list of
 keybinds that already work, see [KEYBINDINGS.md](KEYBINDINGS.md).
@@ -39,8 +39,6 @@ mode parity.
 
 | Keybind | Planned behavior |
 |---------|------------------|
-| `gm` | Go to the middle of the screen line |
-| `go` | Go to a byte offset |
 | `[m` | Go to previous method/function start |
 | `]m` | Go to next method/function start |
 | `[M` | Go to previous method/function end |
