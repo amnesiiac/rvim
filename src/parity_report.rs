@@ -5,6 +5,7 @@
 
 use crate::keybind_coverage::{self, CoverageKind, CoverageState, KeybindCoverage};
 use crate::vim_oracle;
+use std::collections::HashSet;
 use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -52,6 +53,76 @@ fn ci_nvim_version() -> String {
 /// GFM table cells treat `|` as a column break even inside code spans.
 fn escape_cell(text: &str) -> String {
     text.replace('|', "\\|")
+}
+
+/// A keybind table row from KEYBINDINGS.md: the raw key/description cells
+/// (already valid GFM, reprinted verbatim) plus the individual backticked
+/// key tokens from the key cell (rows can list alternates: `+` / `Enter`).
+struct DocumentedRow {
+    key_cell: String,
+    description_cell: String,
+    keys: Vec<String>,
+}
+
+/// Split a GFM table row into cells, honoring `\|` escapes inside keys.
+fn split_row_cells(line: &str) -> Vec<String> {
+    let mut cells = Vec::new();
+    let mut current = String::new();
+    let mut chars = line.trim_start_matches('|').chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\\' && chars.peek() == Some(&'|') {
+            current.push_str("\\|");
+            chars.next();
+        } else if c == '|' {
+            cells.push(current.trim().to_string());
+            current.clear();
+        } else {
+            current.push(c);
+        }
+    }
+    cells
+}
+
+/// Every keybind row in KEYBINDINGS.md (lines shaped `| `key` | action |`).
+fn documented_rows() -> Vec<DocumentedRow> {
+    let text = fs::read_to_string(manifest_path("KEYBINDINGS.md")).expect("read KEYBINDINGS.md");
+    text.lines()
+        .filter(|line| line.starts_with("| `"))
+        .filter_map(|line| {
+            let cells = split_row_cells(line);
+            if cells.len() < 2 {
+                return None;
+            }
+            // Odd-indexed backtick segments are the key tokens.
+            let keys: Vec<String> = cells[0]
+                .split('`')
+                .skip(1)
+                .step_by(2)
+                .map(|key| key.replace("\\|", "|"))
+                .collect();
+            (!keys.is_empty()).then(|| DocumentedRow {
+                key_cell: cells[0].clone(),
+                description_cell: cells[1].clone(),
+                keys,
+            })
+        })
+        .collect()
+}
+
+/// The notations KEYBINDINGS.md may use for an inventory key: the inventory
+/// writes `<C-f>` and `<CR>` where the docs write `Ctrl+f` and `Enter`.
+fn documented_forms(inventory_key: &str) -> Vec<String> {
+    let mut forms = vec![inventory_key.to_string()];
+    if inventory_key == "<CR>" {
+        forms.push("Enter".to_string());
+    }
+    if let Some(key) = inventory_key
+        .strip_prefix("<C-")
+        .and_then(|rest| rest.strip_suffix('>'))
+    {
+        forms.push(format!("Ctrl+{key}"));
+    }
+    forms
 }
 
 fn push_table(
@@ -153,7 +224,24 @@ fn render() -> String {
         config_entries.len()
     );
     let _ = writeln!(out, "- **{total_cases} oracle cases**: {case_breakdown}");
-    let _ = writeln!(out, "- **{} tracked coverage gaps**\n", gaps.len());
+    let _ = writeln!(out, "- **{} tracked coverage gaps**", gaps.len());
+
+    let inventory_forms: HashSet<String> = entries
+        .iter()
+        .flat_map(|entry| documented_forms(entry.key))
+        .collect();
+    let rows = documented_rows();
+    let (tracked_rows, untracked_rows): (Vec<&DocumentedRow>, Vec<&DocumentedRow>) = rows
+        .iter()
+        .partition(|row| row.keys.iter().any(|key| inventory_forms.contains(key)));
+    let _ = writeln!(
+        out,
+        "- **{} of {} documented keybind rows map to an inventoried keybind**; \
+         the rest work today but are not yet individually tracked \
+         ([full list below](#documented-but-not-yet-inventoried))\n",
+        tracked_rows.len(),
+        rows.len()
+    );
 
     let _ = writeln!(out, "## How the Vim oracle works\n");
     let _ = writeln!(
@@ -208,6 +296,30 @@ fn render() -> String {
             );
         }
     }
+    out.push('\n');
+
+    let _ = writeln!(out, "## Documented but not yet inventoried\n");
+    let _ = writeln!(
+        out,
+        "Every row below is documented in [KEYBINDINGS.md](KEYBINDINGS.md) and works\n\
+         today, but is not yet individually mapped to a protecting test in the\n\
+         coverage inventory. This is the to-do list for growing coverage: rows move\n\
+         up into the tables above as their tests land. (Operator+motion composites\n\
+         like `dw` are tracked as single inventory entries, so their building-block\n\
+         rows may already be covered compositionally.)\n"
+    );
+    let _ = writeln!(out, "<details>");
+    let _ = writeln!(
+        out,
+        "<summary>{} untracked rows</summary>\n",
+        untracked_rows.len()
+    );
+    let _ = writeln!(out, "| Keybind | Behavior |");
+    let _ = writeln!(out, "|---------|----------|");
+    for row in &untracked_rows {
+        let _ = writeln!(out, "| {} | {} |", row.key_cell, row.description_cell);
+    }
+    let _ = writeln!(out, "\n</details>");
 
     out
 }
@@ -216,6 +328,27 @@ fn render() -> String {
 mod tests {
     use super::{PARITY_PATH, manifest_path, render};
     use std::fs;
+
+    #[test]
+    fn documented_rows_parse_and_match_inventory_notation() {
+        let rows = super::documented_rows();
+        assert!(
+            rows.len() > 400,
+            "expected the full KEYBINDINGS.md table, got {} rows",
+            rows.len()
+        );
+        // Alternate keys in one cell split into separate tokens.
+        assert!(
+            rows.iter().any(|row| row.keys.contains(&"+".to_string())
+                && row.keys.contains(&"Enter".to_string()))
+        );
+        // The escaped `\|` row round-trips to a literal pipe token.
+        assert!(rows.iter().any(|row| row.keys.contains(&"|".to_string())));
+        assert!(rows.iter().any(|row| row.keys.contains(&"gM".to_string())));
+        // Notation translation bridges inventory keys to doc rows.
+        assert!(super::documented_forms("<C-f>").contains(&"Ctrl+f".to_string()));
+        assert!(super::documented_forms("<CR>").contains(&"Enter".to_string()));
+    }
 
     /// Expect-test style: `NEVI_UPDATE_PARITY=1 cargo test parity_report`
     /// rewrites PARITY.md; a plain run fails if the committed file is stale.
