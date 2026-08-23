@@ -14272,7 +14272,9 @@ mod tests {
             None,
             ":w {{path}} must not touch the register"
         );
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), "dw");
+        // The buffer normalizes a missing final newline ('fixendofline'
+        // parity), so the written file ends with one.
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "dw\n");
         let _ = std::fs::remove_file(&path);
     }
 
