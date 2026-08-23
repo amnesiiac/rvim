@@ -16,6 +16,7 @@ the test suite enforces, so it cannot drift from what is actually verified.
   - 1 covered as default-keymap plumbing with dedicated tests
 - **227 oracle cases**: motions (107), editing (60), insert-entry (11), open-line (20), replace (27), undo-redo (2)
 - **0 tracked coverage gaps**
+- **103 of 424 documented keybind rows map to an inventoried keybind**; the rest work today but are not yet individually tracked ([full list below](#documented-but-not-yet-inventoried))
 
 ## How the Vim oracle works
 
@@ -124,3 +125,341 @@ Nevi-owned behavior with no Vim equivalent to compare against.
 ## Tracked gaps
 
 None — every inventoried keybind is currently protected by a test.
+
+## Documented but not yet inventoried
+
+Every row below is documented in [KEYBINDINGS.md](KEYBINDINGS.md) and works
+today, but is not yet individually mapped to a protecting test in the
+coverage inventory. This is the to-do list for growing coverage: rows move
+up into the tables above as their tests land. (Operator+motion composites
+like `dw` are tracked as single inventory entries, so their building-block
+rows may already be covered compositionally.)
+
+<details>
+<summary>321 untracked rows</summary>
+
+| Keybind | Behavior |
+|---------|----------|
+| `-` | Move to first non-blank of previous line |
+| `gj` | Move down by display line when wrap is enabled |
+| `gk` | Move up by display line when wrap is enabled |
+| `g0` | Move to start of display line when wrap is enabled |
+| `g$` | Move to end of display line when wrap is enabled |
+| `g^` | Move to first non-blank of display line when wrap is enabled |
+| `{` | Move to previous blank line (paragraph) |
+| `}` | Move to next blank line (paragraph) |
+| `(` | Move to previous sentence |
+| `)` | Move to next sentence |
+| `{n}G` | Move to line n (e.g., `50G` goes to line 50) |
+| `{n}go` | Go to byte n of the file |
+| `Ctrl+o` | Jump to older position |
+| `Ctrl+i` | Jump to newer position |
+| `''` | Jump to the line before the last jump |
+| `g;` | Jump to older change position |
+| `g,` | Jump to newer change position |
+| `'.` | Jump to the line of the last change |
+| `'^` | Jump to the line of the last insert |
+| `gi` | Go to last insert position and enter insert mode |
+| `d` | Delete |
+| `c` | Change (delete and enter insert mode) |
+| `y` | Yank (copy) |
+| `>` | Indent right |
+| `<` | Indent left |
+| `=` | Auto-indent |
+| `gu` | Lowercase |
+| `gU` | Uppercase |
+| `g~` | Toggle case |
+| `X` / `{n}X` | Delete character(s) before cursor |
+| `s` / `{n}s` | Substitute character(s) under cursor |
+| `S` / `{n}S` | Substitute entire line(s) |
+| `gp` / `{n}gp` | Paste after and leave cursor after pasted text |
+| `gP` / `{n}gP` | Paste before and leave cursor after pasted text |
+| `r{char}` / `{n}r{char}` | Replace exactly one/count characters; `Enter` replaces them with one newline |
+| `R` / `{n}R` | Enter replace mode; a count repeats the entered replacement text |
+| `.` | Repeat last change |
+| `>>` | Indent current line |
+| `<<` | Dedent current line |
+| `>{motion}` | Indent with motion (e.g., `>j` indents current and next line) |
+| `<{motion}` | Dedent with motion |
+| `==` | Auto-indent current line |
+| `={motion}` | Auto-indent with motion |
+| `~` / `{n}~` | Toggle case of character(s) under cursor |
+| `gu{motion}` | Lowercase with motion |
+| `guu` | Lowercase entire line |
+| `gU{motion}` | Uppercase with motion |
+| `gUU` | Uppercase entire line |
+| `g~{motion}` | Toggle case with motion |
+| `g~~` | Toggle case of entire line |
+| `J` / `{n}J` | Join lines with spaces |
+| `gJ` / `{n}gJ` | Join lines without adding spaces |
+| `/` | Search forward |
+| `?` | Search backward |
+| `n` | Go to next match |
+| `N` | Go to previous match |
+| `*` | Search word under cursor forward |
+| `#` | Search word under cursor backward |
+| `gn` | Search forward and select match |
+| `gN` | Search backward and select match |
+| `Ctrl+e` | Move to end of search input |
+| `Ctrl+w` | Delete word before cursor |
+| `Ctrl+r {reg}` | Insert register contents |
+| `Up` | Navigate to previous search history entry |
+| `Down` | Navigate to next search history entry |
+| `m{a-z}` | Set local mark (buffer-specific) |
+| `m{A-Z}` | Set global mark (works across files) |
+| `'{a-z}` | Jump to line of local mark |
+| `` `{a-z} `` | Jump to exact position of local mark |
+| `'{A-Z}` | Jump to line of global mark |
+| `` `{A-Z} `` | Jump to exact position of global mark |
+| `q{a-z}` | Start recording macro into register |
+| `q` | Stop recording (when recording) |
+| `@{a-z}` | Play macro from register |
+| `@@` | Replay last executed macro |
+| `{n}@{a-z}` | Play macro n times |
+| `gi` | Go to last insert position and enter insert mode |
+| `Esc` or `Ctrl+[` | Exit insert mode |
+| `Backspace` | Delete character before cursor |
+| `Ctrl+w` | Delete word before cursor |
+| `Ctrl+t` | Increase indent of current line |
+| `Ctrl+a` | Insert previously inserted text |
+| `Ctrl+r {reg}` | Insert contents of register |
+| `Ctrl+o` | Run one normal-mode command, then return to insert |
+| `Ctrl+l` | Accept visible Copilot suggestion |
+| `Alt+]` | Next visible Copilot suggestion |
+| `Alt+[` | Previous visible Copilot suggestion |
+| `Esc` or `Ctrl+[` | Exit replace mode |
+| `Backspace` | Restore the previous straight-line replacement, or navigate backward after cursor movement |
+| `v` | Enter character-wise visual mode |
+| `V` | Enter line-wise visual mode |
+| `Ctrl+v` | Enter block visual mode |
+| `Esc` | Exit visual mode |
+| `d` | Delete selection |
+| `c` | Change selection |
+| `y` | Yank selection |
+| `>` | Indent selection |
+| `<` | Dedent selection |
+| `gc` | Toggle comment on selection |
+| `S{char}` | Surround selection with character |
+| `gv` | Reselect last visual selection (from normal mode) |
+| `iw` / `aw` | Inner/around word |
+| `iW` / `aW` | Inner/around WORD |
+| `i"` / `a"` | Inner/around double quotes |
+| `i'` / `a'` | Inner/around single quotes |
+| `` i` `` / `` a` `` | Inner/around backticks |
+| `i(` / `a(` | Inner/around parentheses |
+| `ib` / `ab` | Inner/around parentheses (alias) |
+| `i{` / `a{` | Inner/around braces |
+| `iB` / `aB` | Inner/around braces (alias) |
+| `i[` / `a[` | Inner/around brackets |
+| `i<` / `a<` | Inner/around angle brackets |
+| `ip` / `ap` | Inner/around paragraph |
+| `is` / `as` | Inner/around sentence |
+| `it` / `at` | Inner/around HTML/XML tag |
+| `"a` - `"z` | Named registers |
+| `"A` - `"Z` | Append to named registers |
+| `"+` | System clipboard |
+| `"*` | Selection clipboard (same as `+` on macOS) |
+| `"_` | Black hole (delete without saving) |
+| `"0` | Last yank |
+| `".` | Last inserted text |
+| `"%` | Current filename |
+| `":` | Last command |
+| `"#` | Alternate filename |
+| `"=` | Expression register |
+| `gd` | Go to definition |
+| `gD` | Go to declaration |
+| `gI` | Go to implementation |
+| `gf` | Open file under cursor |
+| `gx` | Open URL under cursor |
+| `gr` | Find references |
+| `K` | Show hover documentation |
+| `gl` | Show diagnostic in floating window |
+| `]d` | Go to next diagnostic |
+| `[d` | Go to previous diagnostic |
+| `<leader>ca` | Code actions |
+| `<leader>rn` | Rename symbol |
+| `<leader>d` | Search all diagnostics |
+| `<leader>D` | Show line diagnostic |
+| `ds{char}` | Delete surrounding pair |
+| `cs{old}{new}` | Change surrounding pair |
+| `ys{motion}{char}` | Add surrounding pair |
+| `yss{char}` | Add surrounding pair around current line |
+| `S{char}` | Surround selection |
+| `gcc` | Toggle comment on current line |
+| `gc{motion}` | Toggle comment with motion |
+| `gc` | Toggle comment on selection |
+| `Ctrl+w v` | Split window vertically |
+| `Ctrl+w s` | Split window horizontally |
+| `Ctrl+w q` | Close current window |
+| `Ctrl+w o` | Close all other windows |
+| `Ctrl+w w` | Move to next window |
+| `Ctrl+w W` | Move to previous window |
+| `Ctrl+w h` | Move to window on the left |
+| `Ctrl+w j` | Move to window below |
+| `Ctrl+w k` | Move to window above |
+| `Ctrl+w l` | Move to window on the right |
+| `Ctrl+w =` | Make all windows equal size |
+| `Ctrl+w +` | Increase current split height |
+| `Ctrl+w -` | Decrease current split height |
+| `Ctrl+w >` | Increase current split width |
+| `Ctrl+w <` | Decrease current split width |
+| `Ctrl+w _` | Maximize current split height |
+| `Ctrl+w \|` | Maximize current split width |
+| `Ctrl+w r` | Rotate windows down/right |
+| `Ctrl+w R` | Rotate windows up/left |
+| `Ctrl+w x` | Exchange current window with next |
+| `Ctrl+w H` | Move current window to the far left |
+| `Ctrl+w J` | Move current window to the bottom |
+| `Ctrl+w K` | Move current window to the top |
+| `Ctrl+w L` | Move current window to the far right |
+| `Ctrl+h` / `Ctrl+j` / `Ctrl+k` / `Ctrl+l` | Move directly to neighboring windows |
+| `<leader>w` | Save file |
+| `<leader>q` | Quit |
+| `<leader>e` | Toggle file explorer |
+| `<leader>ff` | Find files (fuzzy finder) |
+| `<leader>fg` | Live grep (search in files) |
+| `<leader>fl` | Find lines in current buffer |
+| `<leader>sw` | Search word under cursor |
+| `<leader>fb` | Find buffers |
+| `<leader>ft` | Theme picker |
+| `<leader>tt` | Terminal picker |
+| `<leader>tn` | New terminal session |
+| `<leader>tj` | Next terminal session |
+| `<leader>tk` | Previous terminal session |
+| `<leader>tr` | Rename active terminal session |
+| `<leader>tx` | Kill active terminal session |
+| `<leader>t1` - `<leader>t4` | Jump to terminal session 1-4 |
+| `Ctrl+\` | Toggle the active floating terminal |
+| `Ctrl+Shift+T` | New terminal session |
+| `Ctrl+Tab` | Next terminal session |
+| `Ctrl+Shift+Tab` | Previous terminal session |
+| `Ctrl+Shift+W` | Close current terminal session |
+| `y` | Copy the current terminal selection |
+| `Ctrl+Shift+C` | Copy the current terminal selection |
+| `Cmd+C` | Copy the current terminal selection when the outer terminal forwards the key to Nevi |
+| `Esc` / `Ctrl+[` | Clear the current terminal selection |
+| `<leader>ca` | Code actions |
+| `<leader>rn` | Rename symbol |
+| `<leader>d` | Search diagnostics |
+| `<leader>D` | Show line diagnostic |
+| `<leader>gg` | Open lazygit |
+| `<leader>gc` | Open Git changes picker |
+| `<leader>m` | Add current file to harpoon |
+| `<leader>h` | Open harpoon menu |
+| `<leader>1` | Jump to harpoon slot 1 |
+| `<leader>2` | Jump to harpoon slot 2 |
+| `<leader>3` | Jump to harpoon slot 3 |
+| `<leader>4` | Jump to harpoon slot 4 |
+| `Ctrl+j` / `Ctrl+n` / `Down` | Move to next result |
+| `Ctrl+k` / `Ctrl+p` / `Up` | Move to previous result |
+| `Esc` | Switch to normal mode |
+| `Ctrl+c` | Close finder |
+| `Ctrl+t` | Toggle preview panel |
+| `g` | Go to first result |
+| `Esc` / `Ctrl+[` / `Ctrl+c` | Close finder |
+| `d` | Delete selected Harpoon item or mark |
+| `K` | Move selected Harpoon item up |
+| `J` | Move selected Harpoon item down |
+| `Esc` / `Ctrl+[` / `q` | Close explorer |
+| `Tab` | Toggle expand/collapse |
+| `R` | Refresh explorer and git status |
+| `?` | Show explorer keymaps |
+| `-` | Go to parent directory |
+| `Ctrl+l` | Focus editor and keep explorer open |
+| `>` | Widen explorer sidebar |
+| `<` | Narrow explorer sidebar |
+| `=` | Reset explorer sidebar width |
+| `r` | Rename selected item |
+| `d` | Delete selected item |
+| `/` | Search explorer |
+| `n` / `N` | Next/previous search match |
+| `c` | Copy selected item |
+| `]h` | Go to next harpoon file |
+| `[h` | Go to previous harpoon file |
+| `Ctrl+e` | Move to end of command line |
+| `Ctrl+w` | Delete word before cursor |
+| `Ctrl+r {reg}` | Insert register contents |
+| `Ctrl+v` / `Ctrl+q` | Insert the next key literally |
+| `Ctrl+k {char1}{char2}` | Insert a Vim-compatible digraph, for example `a:` -> `ä` |
+| `Ctrl+l` | Complete longest common command prefix |
+| `Ctrl+a` | Insert all matching command completions |
+| `Alt+r` | Toggle command history window |
+| `Tab` | Accept selected command completion |
+| `Shift+Tab` | Accept previous completion |
+| `Ctrl+n` / `Ctrl+p` | Select next / previous popup item |
+| `:w` / `:write` | Save file, refusing to overwrite external disk changes |
+| `:w!` / `:write!` | Force save file, overwriting external disk changes |
+| `:wa` / `:wall` | Save all files |
+| `:q` / `:quit` | Quit |
+| `:q!` / `:quit!` | Force quit (discard changes) |
+| `:qa` / `:qall` | Quit all |
+| `:qa!` / `:qall!` | Force quit all |
+| `:wq` | Save and quit |
+| `:wqa` / `:wqall` / `:xall` | Save all and quit |
+| `:x` / `:exit` / `ZZ` | Save if modified and quit |
+| `:xa` | Save all modified files and quit all |
+| `:e {file}` / `:edit {file}` | Edit/open a file |
+| `:e!` / `:edit!` | Reload current file and discard changes |
+| `:new {path}` / `:touch {path}` | Create a file |
+| `:delete` / `:rm` | Delete current file with confirmation |
+| `:delete!` / `:rm!` | Force delete current file |
+| `:rename {path}` / `:mv {path}` | Rename current file |
+| `:mkdir {path}` | Create directory |
+| `:{n}` | Go to line n |
+| `:FindFiles` / `:ff` / `:files` | Open file finder |
+| `:LiveGrep` / `:grep` / `:rg` | Search in files |
+| `:BufferSearch` / `:FindLines` / `:Lines` / `:bl` | Find lines in current buffer |
+| `:SearchWord` / `:sw` | Search word under cursor |
+| `:Jump` / `:jump` | Start labeled jump mode: type 2 chars, then press a visible label |
+| `:FindBuffers` / `:fb` / `:buffers` | Open buffer finder |
+| `:FindDiagnostics` / `:diag` / `:fd` | Open diagnostics finder |
+| `:DiagnosticFloat` / `:df` | Show diagnostics for cursor line |
+| `:GitChanges` / `:gitchanges` / `:changes` / `:gc` | Open changed Git files picker with diff preview; `Enter` opens the selected file |
+| `:Explorer` / `:ex` | Toggle file explorer |
+| `:Explore` / `:Ex` | Open file explorer |
+| `:bn` | Next buffer |
+| `:bp` | Previous buffer |
+| `:bd` / `:bdelete` | Close current buffer (fails if unsaved) |
+| `:bd!` / `:bdelete!` | Force close current buffer |
+| `:vs` / `:vsplit` | Vertical split |
+| `:sp` / `:split` | Horizontal split |
+| `:only` / `:on` | Close all other panes |
+| `:noh` / `:nohlsearch` | Clear search highlights |
+| `:s/{pattern}/{replacement}/` | Substitute on current line |
+| `:%s/{pattern}/{replacement}/` | Substitute in entire file |
+| `:ProjectReplace/{pattern}/{replacement}/[g]` / `:PReplace/{pattern}/{replacement}/[g]` | Preview project-wide literal replace in a read-only `[project-replace]` buffer |
+| `:ProjectReplaceApply` / `:PReplaceApply` | Apply the last project replace preview |
+| `:Format` / `:format` | Format current document |
+| `:rn [name]` / `:lsprename [name]` | Rename symbol |
+| `:codeaction` / `:ca` | Show code actions |
+| `:ToolInstall` / `:LspInstall` | Open read-only `[tool-installer]` report with missing LSP/tool install commands |
+| `:Themes` | Open theme picker |
+| `:Theme {name}` / `:theme {name}` / `:colorscheme {name}` | Set theme |
+| `:LazyGit` / `:lg` | Open lazygit |
+| `:checkhealth` / `:CheckHealth` / `:Health` | Open read-only `[health]` report with config, keymap, profiling, LSP, and external tools |
+| `:FlightRecorder` / `:WhySlow` / `:flight` | Open read-only `[flight-recorder]` report with recent in-memory timing events |
+| `:ConfigOpen` / `:config` / `:configopen` | Open the user config file, creating it first if needed |
+| `:ConfigDefaults` / `:configdefaults` | Open read-only `[config-defaults]` buffer with latest built-in default config |
+| `:!{command}` | Run external shell command |
+| `:Terminal` / `:term` | Toggle floating terminal |
+| `:TerminalNew [name]` / `:termnew [name]` | Create floating terminal session |
+| `:TerminalNext` / `:termnext` | Switch to next floating terminal session |
+| `:TerminalPrev` / `:termprev` | Switch to previous floating terminal session |
+| `:TerminalList` / `:termls` | List floating terminal sessions |
+| `:Terminals` / `:termmenu` | Open floating terminal session picker (`Enter` selects, `d` kills, `n` creates, `r` renames) |
+| `:TerminalSelect {n}` / `:termsel {n}` | Select floating terminal session |
+| `:TerminalRename` / `:termrename` | Prefill a rename command for the active terminal session |
+| `:TerminalRename [n] {name}` / `:termrename [n] {name}` | Rename active terminal or terminal session `n` |
+| `:TerminalKill` / `:termkill` | Kill floating terminal |
+| `:CopilotAuth` / `:Copilot` | Sign in to Copilot |
+| `:CopilotSignOut` | Sign out of Copilot |
+| `:CopilotStatus` | Show Copilot status |
+| `:CopilotToggle` | Toggle Copilot |
+| `:marks` | Show marks picker |
+| `:delmarks {m}` / `:delm {m}` | Delete marks |
+| `:delmarks!` / `:delm!` | Delete all local lowercase marks |
+| `:HarpoonAdd` | Add to harpoon |
+| `:HarpoonMenu` | Open harpoon menu |
+| `:Harpoon1` - `:Harpoon4` | Jump to harpoon slot |
+
+</details>
