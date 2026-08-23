@@ -93,4 +93,17 @@ pub(super) const OPEN_LINE_CASES: &[OracleCase] = &[
         initial_text: "alpha\nomega\n",
         keys: "j$Oabove<Esc>u<C-r>",
     },
+    // Fuzz-found class: without the missing-final-newline fix, opening a
+    // line at the end of a no-EOL buffer parked the cursor on the rope's
+    // trailing sentinel line.
+    OracleCase {
+        name: "open below at eof without trailing newline",
+        initial_text: "abc",
+        keys: "o<Esc>",
+    },
+    OracleCase {
+        name: "open below and type at eof without trailing newline",
+        initial_text: "abc",
+        keys: "oend<Esc>",
+    },
 ];

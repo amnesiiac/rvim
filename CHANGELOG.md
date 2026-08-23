@@ -12,6 +12,7 @@ Nevi 0.3.0 brings further improvements.
 - Added Bash/shell tree-sitter highlighting for `.sh`/`.bash`/`.zsh` files, common rc/profile names (`.bashrc`, `.bash_profile`, `.zshrc`, `PKGBUILD`, …), and shebang detection for extensionless scripts.
 - Added `[lsp.servers.shell]` with `bash-language-server` (same config shape as Go/Ruby).
 - Fixed `J`/`gJ` on the last line silently deleting the file's trailing newline; they are now a no-op like Vim.
+- Files without a final newline now gain one on load and save (Neovim's `fixendofline` default), fixing the cursor landing on a phantom line when opening a line at end of file.
 
 ## 0.2.0 - 2026-07-07
 

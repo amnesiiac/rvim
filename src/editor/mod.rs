@@ -2916,10 +2916,13 @@ impl Editor {
         let cursor_col = self.cursor.col;
         self.undo_stack.end_undo_group(cursor_line, cursor_col);
         self.undo_stack.begin_undo_group(cursor_line, cursor_col);
-        self.undo_stack
-            .record_change(Change::new(0, 0, old_content, content.to_string()));
 
+        // Record what actually lands in the buffer: set_content may append
+        // a missing final newline, and the redo string must match it.
         self.buffer_mut().set_content(content);
+        let new_content = self.buffer().content();
+        self.undo_stack
+            .record_change(Change::new(0, 0, old_content, new_content));
 
         let max_line = self.buffer().addressable_line_count().saturating_sub(1);
         self.cursor.line = cursor_line.min(max_line);
@@ -12615,7 +12618,9 @@ mod tests {
         editor.apply_motion(Motion::LineEnd, 1);
         editor.visual_delete();
 
-        assert_eq!(editor.buffer().content(), "");
+        // Normalized on load (fixendofline): deleting all text leaves the
+        // single empty line, like Vim's always-at-least-one-line buffer.
+        assert_eq!(editor.buffer().content(), "\n");
         assert_eq!(editor.mode, Mode::Normal);
         assert_eq!((editor.cursor.line, editor.cursor.col), (0, 0));
     }

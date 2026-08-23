@@ -296,4 +296,16 @@ pub(super) const EDITING_CASES: &[OracleCase] = &[
         initial_text: "alpha\nbeta\n",
         keys: "GgJ",
     },
+    // No-EOL buffers must behave like Neovim ('fixendofline' default):
+    // the buffer gains the missing final newline on load.
+    OracleCase {
+        name: "enter in insert at eof without trailing newline",
+        initial_text: "abc",
+        keys: "A<CR><Esc>",
+    },
+    OracleCase {
+        name: "join on last line without trailing newline",
+        initial_text: "alpha\nbeta",
+        keys: "GJ",
+    },
 ];
