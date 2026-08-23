@@ -173,8 +173,10 @@ fn linewise_paste_after_unterminated_last_line_remains_undoable() {
     editor.yank_line(1, Some('a'));
     editor.paste_after(Some('a'));
 
+    // The no-EOL source text is normalized on load (fixendofline), so undo
+    // restores the terminated form.
     editor.undo();
-    assert_eq!(editor.buffer().content(), "abc");
+    assert_eq!(editor.buffer().content(), "abc\n");
 
     editor.redo();
     assert_eq!(editor.buffer().content(), "abc\nabc\n");

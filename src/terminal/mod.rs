@@ -15857,7 +15857,8 @@ mod tests {
         handle_key(&mut editor, key('c'));
         handle_key(&mut editor, key('$'));
 
-        assert_eq!(editor.buffer().content(), "ab");
+        // The no-EOL source text is normalized on load (fixendofline).
+        assert_eq!(editor.buffer().content(), "ab\n");
         assert_eq!(editor.mode, Mode::Insert);
         assert_eq!(editor.cursor.col, 2);
 

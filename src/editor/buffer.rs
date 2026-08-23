@@ -64,7 +64,8 @@ impl Buffer {
     fn from_file_with_read_only(path: PathBuf, read_only: bool) -> anyhow::Result<Self> {
         let (text, last_mtime) = if path.exists() {
             let mtime = std::fs::metadata(&path)?.modified().ok();
-            let rope = Rope::from_reader(std::fs::File::open(&path)?)?;
+            let mut rope = Rope::from_reader(std::fs::File::open(&path)?)?;
+            Self::fix_missing_final_newline(&mut rope);
             (rope, mtime)
         } else {
             // New file that doesn't exist yet
@@ -194,11 +195,25 @@ impl Buffer {
 
         if path.exists() {
             self.text = Rope::from_reader(std::fs::File::open(path)?)?;
+            Self::fix_missing_final_newline(&mut self.text);
             self.last_mtime = std::fs::metadata(path).ok().and_then(|m| m.modified().ok());
             self.dirty = false;
             self.version = self.version.wrapping_add(1);
         }
         Ok(())
+    }
+
+    /// Neovim parity ('fixendofline' default): a non-empty buffer whose text
+    /// does not end in a newline gets one appended, so the missing-final-
+    /// newline state is unrepresentable while editing. Without this, opening
+    /// a line at end of file parks the cursor on the rope's trailing
+    /// sentinel line (fuzz-found), and saving writes the newline exactly
+    /// like Neovim does.
+    fn fix_missing_final_newline(text: &mut Rope) {
+        let len = text.len_chars();
+        if len > 0 && text.char(len - 1) != '\n' {
+            text.insert(len, "\n");
+        }
     }
 
     /// Get total number of lines
@@ -273,6 +288,7 @@ impl Buffer {
             return;
         }
         self.text = Rope::from_str(content);
+        Self::fix_missing_final_newline(&mut self.text);
         self.dirty = true;
         self.version = self.version.wrapping_add(1);
     }
@@ -617,6 +633,29 @@ mod tests {
             .expect("system time")
             .as_nanos();
         std::env::temp_dir().join(format!("{}_{}_{}", prefix, std::process::id(), nanos))
+    }
+
+    #[test]
+    fn missing_final_newline_is_fixed_on_load_and_set_content() {
+        let mut buffer = Buffer::new();
+        buffer.set_content("abc");
+        assert_eq!(buffer.content(), "abc\n");
+        assert_eq!(buffer.addressable_line_count(), 1);
+
+        buffer.set_content("abc\n");
+        assert_eq!(buffer.content(), "abc\n", "already terminated: unchanged");
+
+        buffer.set_content("");
+        assert_eq!(buffer.content(), "", "empty buffer stays empty");
+
+        let dir = unique_temp_dir("nevi_noeol");
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let path = dir.join("noeol.txt");
+        std::fs::write(&path, "alpha\nbeta").expect("write file");
+        let from_disk = Buffer::from_file(path).expect("load");
+        assert_eq!(from_disk.content(), "alpha\nbeta\n");
+        assert!(!from_disk.dirty, "normalization must not mark dirty");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
