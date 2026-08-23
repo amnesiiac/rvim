@@ -14,7 +14,7 @@ the test suite enforces, so it cannot drift from what is actually verified.
   - 71 verified against real Neovim (v0.11.3) by the Vim oracle
   - 1 protected by focused Nevi regression tests
   - 1 covered as default-keymap plumbing with dedicated tests
-- **221 oracle cases**: motions (107), editing (56), insert-entry (11), open-line (18), replace (27), undo-redo (2)
+- **223 oracle cases**: motions (107), editing (58), insert-entry (11), open-line (18), replace (27), undo-redo (2)
 - **0 tracked coverage gaps**
 
 ## How the Vim oracle works

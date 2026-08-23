@@ -8611,7 +8611,11 @@ impl Editor {
 
     /// Join current line with next line (J command)
     pub fn join_lines(&mut self) {
-        let total_lines = self.buffers[self.current_buffer_idx].len_lines();
+        // Use the addressable count: raw addressable_line_count() includes the trailing
+        // rope sentinel, and joining "into" it silently eats the file's
+        // final newline (found by fuzzing; Vim treats J on the last line
+        // as a no-op).
+        let total_lines = self.buffers[self.current_buffer_idx].addressable_line_count();
         if self.cursor.line >= total_lines.saturating_sub(1) {
             // Already on last line, nothing to join
             return;
@@ -8715,7 +8719,8 @@ impl Editor {
 
     /// Join current line with next line without inserting space (gJ command)
     pub fn join_lines_no_space(&mut self) {
-        let total_lines = self.buffers[self.current_buffer_idx].len_lines();
+        // Addressable count, not len_lines(): see join_lines().
+        let total_lines = self.buffers[self.current_buffer_idx].addressable_line_count();
         if self.cursor.line >= total_lines.saturating_sub(1) {
             // Already on last line, nothing to join
             return;
@@ -12412,6 +12417,56 @@ mod tests {
 
         editor.undo();
         assert_eq!(editor.buffer().content(), "abc\n");
+    }
+
+    // Guard for the Pane/Editor mirroring invariant: every per-pane field
+    // the Editor mirrors must survive save_pane_state/load_pane_state. The
+    // exhaustive destructure (no `..`) makes this test stop compiling when
+    // Pane grows a field — decide then whether the Editor mirrors it, update
+    // both sync functions, and extend the assertions here.
+    #[test]
+    fn every_pane_field_survives_save_and_load() {
+        let mut editor = Editor::default();
+        editor.set_size(120, 40);
+        editor.replace_buffer_content("12\n\n1234\n\n123\n");
+        editor.vsplit(None).expect("vsplit");
+
+        // Distinctive state in the active pane, including a sticky column.
+        editor.cursor.set(2, 2);
+        editor.apply_motion(Motion::Up, 1);
+        let saved_cursor = editor.cursor;
+        let saved_desired = editor.desired_col;
+        assert!(saved_desired.is_some(), "Up should record a sticky column");
+
+        // Move around in the other pane so its state differs, then return.
+        editor.next_pane();
+        editor.cursor.set(0, 0);
+        editor.apply_motion(Motion::Down, 1);
+        editor.next_pane();
+
+        assert_eq!(editor.cursor, saved_cursor);
+        assert_eq!(editor.desired_col, saved_desired);
+
+        let pane = &editor.panes[editor.active_pane];
+        let super::Pane {
+            buffer_idx,
+            cursor,
+            desired_col,
+            viewport_offset,
+            h_offset,
+            half_page_scroll_rows,
+            rect: _,
+            size_weight: _,
+        } = pane;
+
+        // Editor-mirrored fields must match the Editor's copies after load.
+        assert_eq!(*buffer_idx, editor.current_buffer_idx);
+        assert_eq!(*cursor, editor.cursor);
+        assert_eq!(*desired_col, editor.desired_col);
+        assert_eq!(*viewport_offset, editor.viewport_offset);
+        assert_eq!(*h_offset, editor.h_offset);
+        // Pane-local by design (counted Ctrl-d/Ctrl-u distance, layout).
+        let _ = half_page_scroll_rows;
     }
 
     // gm targets half the pane's text-area width; the oracle only covers
