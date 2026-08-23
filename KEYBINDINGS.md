@@ -226,6 +226,10 @@ When specifying keys, use these formats:
 | `]]` | Move to next section start (`{` in column 0) |
 | `[]` | Move to previous section end (`}` in column 0) |
 | `][` | Move to next section end (`}` in column 0) |
+| `[{` | Move to previous unmatched `{` (out of the enclosing block) |
+| `]}` | Move to next unmatched `}` (out of the enclosing block) |
+| `[(` | Move to previous unmatched `(` |
+| `])` | Move to next unmatched `)` |
 | `(` | Move to previous sentence |
 | `)` | Move to next sentence |
 

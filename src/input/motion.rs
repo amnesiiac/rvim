@@ -71,6 +71,12 @@ pub enum Motion {
     SectionBackward,    // [[
     SectionEndForward,  // ][
     SectionEndBackward, // []
+
+    // Unmatched-bracket motions (jump out of the enclosing {} or () block)
+    UnmatchedOpenBrace,  // [{
+    UnmatchedCloseBrace, // ]}
+    UnmatchedOpenParen,  // [(
+    UnmatchedCloseParen, // ])
 }
 
 /// Check if a character is a "word" character (alphanumeric or underscore)
@@ -383,6 +389,11 @@ pub fn apply_motion(
             Some((current, 0))
         }
 
+        Motion::UnmatchedOpenBrace => find_unmatched_backward(buffer, line, col, '{', '}', count),
+        Motion::UnmatchedCloseBrace => find_unmatched_forward(buffer, line, col, '{', '}', count),
+        Motion::UnmatchedOpenParen => find_unmatched_backward(buffer, line, col, '(', ')', count),
+        Motion::UnmatchedCloseParen => find_unmatched_forward(buffer, line, col, '(', ')', count),
+
         Motion::NextLineFirstNonBlank => {
             let max_line = last_addressable_line(buffer);
             let target_line = (line + count).min(max_line);
@@ -692,6 +703,84 @@ fn find_matching_bracket(buffer: &Buffer, line: usize, col: usize) -> Option<(us
 /// Check if a character is a bracket
 fn is_bracket(ch: char) -> bool {
     matches!(ch, '(' | ')' | '[' | ']' | '{' | '}' | '<' | '>')
+}
+
+/// Vim [{ / [(: scan backward from before the cursor for the [count]'th
+/// unmatched `open`. Pairs that close between the cursor and the candidate
+/// cancel out; like Vim, the motion fails (None) when nothing encloses the
+/// cursor. Purely textual — strings and comments are not special.
+fn find_unmatched_backward(
+    buffer: &Buffer,
+    line: usize,
+    col: usize,
+    open: char,
+    close: char,
+    count: usize,
+) -> Option<(usize, usize)> {
+    let mut depth = 0usize;
+    let mut remaining = count.max(1);
+    let mut current_line = line;
+    // Exclusive upper bound: the char under the cursor is never a candidate.
+    let mut end_col = col;
+    loop {
+        for c in (0..end_col).rev() {
+            match buffer.char_at(current_line, c) {
+                Some(ch) if ch == close => depth += 1,
+                Some(ch) if ch == open => {
+                    if depth == 0 {
+                        remaining -= 1;
+                        if remaining == 0 {
+                            return Some((current_line, c));
+                        }
+                    } else {
+                        depth -= 1;
+                    }
+                }
+                _ => {}
+            }
+        }
+        if current_line == 0 {
+            return None;
+        }
+        current_line -= 1;
+        end_col = buffer.line_len(current_line);
+    }
+}
+
+/// Vim ]} / ]): scan forward from after the cursor for the [count]'th
+/// unmatched `close`. Mirror of [`find_unmatched_backward`].
+fn find_unmatched_forward(
+    buffer: &Buffer,
+    line: usize,
+    col: usize,
+    open: char,
+    close: char,
+    count: usize,
+) -> Option<(usize, usize)> {
+    let total_lines = buffer.len_lines();
+    let mut depth = 0usize;
+    let mut remaining = count.max(1);
+    for current_line in line..total_lines {
+        // The char under the cursor is never a candidate.
+        let start_col = if current_line == line { col + 1 } else { 0 };
+        for c in start_col..buffer.line_len(current_line) {
+            match buffer.char_at(current_line, c) {
+                Some(ch) if ch == open => depth += 1,
+                Some(ch) if ch == close => {
+                    if depth == 0 {
+                        remaining -= 1;
+                        if remaining == 0 {
+                            return Some((current_line, c));
+                        }
+                    } else {
+                        depth -= 1;
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    None
 }
 
 /// Search forward for matching bracket

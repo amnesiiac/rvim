@@ -11144,9 +11144,12 @@ impl Editor {
             if end_line == start_line {
                 end_col = end_col.saturating_sub(1).max(start_col);
             } else if end_col == 0 {
+                // Vim :h exclusive: an exclusive motion ending in column 1
+                // moves its end to the last character of the previous line
+                // and becomes inclusive — the line break survives, so d[{
+                // and d} never join lines.
                 let prev_line = end_line.saturating_sub(1);
-                let prev_len =
-                    self.buffers[self.current_buffer_idx].line_len_including_newline(prev_line);
+                let prev_len = self.buffers[self.current_buffer_idx].line_len(prev_line);
                 end_line = prev_line;
                 end_col = prev_len.saturating_sub(1);
             } else {
