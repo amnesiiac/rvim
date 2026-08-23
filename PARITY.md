@@ -16,7 +16,7 @@ the test suite enforces, so it cannot drift from what is actually verified.
   - 1 covered as default-keymap plumbing with dedicated tests
 - **227 oracle cases**: motions (107), editing (60), insert-entry (11), open-line (20), replace (27), undo-redo (2)
 - **0 tracked coverage gaps**
-- **103 of 424 documented keybind rows map to an inventoried keybind**; the rest work today but are not yet individually tracked ([full list below](#documented-but-not-yet-inventoried))
+- **103 of 426 documented keybind rows map to an inventoried keybind**; the rest work today but are not yet individually tracked ([full list below](#documented-but-not-yet-inventoried))
 
 ## How the Vim oracle works
 
@@ -136,7 +136,7 @@ like `dw` are tracked as single inventory entries, so their building-block
 rows may already be covered compositionally.)
 
 <details>
-<summary>321 untracked rows</summary>
+<summary>323 untracked rows</summary>
 
 | Keybind | Behavior |
 |---------|----------|
@@ -216,6 +216,8 @@ rows may already be covered compositionally.)
 | `@{a-z}` | Play macro from register |
 | `@@` | Replay last executed macro |
 | `{n}@{a-z}` | Play macro n times |
+| `:Macros` | Open all recorded macros as notation in a read-only `[macros]` buffer |
+| `:MacroEdit {a-z}` | Edit one register's notation in a `[macro-{register}]` scratch buffer; `:w` applies it back to the register (empty content clears it) |
 | `gi` | Go to last insert position and enter insert mode |
 | `Esc` or `Ctrl+[` | Exit insert mode |
 | `Backspace` | Delete character before cursor |
