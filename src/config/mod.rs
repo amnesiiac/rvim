@@ -26,6 +26,7 @@ pub struct Settings {
     pub finder: FinderSettings,
     pub lsp: LspSettings,
     pub copilot: CopilotSettings,
+    pub ui: UiSettings,
 }
 
 impl Default for Settings {
@@ -39,8 +40,27 @@ impl Default for Settings {
             finder: FinderSettings::default(),
             lsp: LspSettings::default(),
             copilot: CopilotSettings::default(),
+            ui: UiSettings::default(),
         }
     }
+}
+
+impl Settings {
+    /// Resolve the UI chrome style. Unset `[ui] basic` falls back to the
+    /// legacy `editor.use_nerd_font_icons` flag so users who already opted
+    /// out of Nerd Fonts keep a glyph-free UI without editing their config.
+    pub fn resolved_basic_ui(&self) -> bool {
+        self.ui.basic.unwrap_or(!self.editor.use_nerd_font_icons)
+    }
+}
+
+/// UI chrome settings
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct UiSettings {
+    /// true = minimal ASCII chrome; false = rich (Nerd Font icons, powerline
+    /// statusline segments). Default (unset) = rich.
+    pub basic: Option<bool>,
 }
 
 /// Autosave mode configuration
@@ -1002,6 +1022,13 @@ fn default_config_template() -> &'static str {
 # colorscheme = "onedark"    # Color scheme name
 
 # ============================================================================
+# UI CHROME
+# ============================================================================
+# [ui]
+# basic = false              # true = plain ASCII UI (no Nerd Font required);
+#                            # false = rich icons + powerline statusline (default)
+
+# ============================================================================
 # FLOATING TERMINAL
 # ============================================================================
 # [terminal]
@@ -1716,6 +1743,30 @@ fn merge_explorer_mappings(user_mappings: &[ExplorerModeMapping]) -> Vec<Explore
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ui_basic_resolution_combinations() {
+        let mut s = Settings::default();
+        // nothing set → rich
+        assert!(!s.resolved_basic_ui());
+        // legacy nerd-font opt-out implies minimal
+        s.editor.use_nerd_font_icons = false;
+        assert!(s.resolved_basic_ui());
+        // explicit [ui] basic wins over legacy flag
+        s.ui.basic = Some(false);
+        assert!(!s.resolved_basic_ui());
+        s.ui.basic = Some(true);
+        s.editor.use_nerd_font_icons = true;
+        assert!(s.resolved_basic_ui());
+    }
+
+    #[test]
+    fn ui_section_parses_and_is_optional() {
+        let s: Settings = toml::from_str("[ui]\nbasic = true\n").expect("parse [ui]");
+        assert_eq!(s.ui.basic, Some(true));
+        let s: Settings = toml::from_str("").expect("parse empty config");
+        assert_eq!(s.ui.basic, None);
+    }
 
     #[test]
     fn lsp_server_partial_config_keeps_default_command_and_args() {

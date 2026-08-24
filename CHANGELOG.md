@@ -6,6 +6,10 @@ Nevi 0.3.0 brings further improvements.
 
 ### Highlights
 
+- New segmented statusline: mode-colored powerline segments, git branch and diff stats, diagnostic counts, and an event-driven LSP activity indicator. Set `[ui] basic = true` in config.toml for a plain-ASCII look with the same layout (automatic if you had `use_nerd_font_icons = false`).
+- `:checkhealth` now reports the active UI mode, a Nerd Font glyph probe, and the raw LSP status string (which no longer renders in the statusline).
+- Statusline width math is now Unicode-aware, fixing right-side misalignment with double-width (e.g. CJK) filenames.
+- Themes gain an optional `[ui.statusline] section_bg` key for the mid statusline segments; it falls back to `cursor_line`, so existing themes need no changes.
 - `:Format` now runs the external formatter from `languages.toml` when one is configured for the current language, and falls back to LSP otherwise.
 - Added Vim motions `g_`, `|`, `gM`, `gm`, `go`, `[[`, `]]`, `][`, `[]`, `[{`, `]}`, `[(`, and `])`.
 - `j`/`k` now keep the preferred column (Vim `curswant`) when moving across short or blank lines, and `$` makes vertical motion stick to line ends.

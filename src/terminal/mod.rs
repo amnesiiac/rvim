@@ -3100,134 +3100,98 @@ impl Terminal {
 
         let width = editor.term_width as usize;
         let theme = editor.theme();
+        let glyphs = editor.ui_glyphs();
+        let basic = editor.settings.resolved_basic_ui();
 
-        // Left side: mode and filename
-        let mode_str = if editor.mode == Mode::Command {
-            "NORMAL" // Show NORMAL in status while in command mode (like vim)
-        } else {
-            editor.mode.as_str()
-        };
-
-        // Get mode color from theme
-        let mode_color = match editor.mode {
-            Mode::Normal | Mode::Command => theme.ui.statusline_mode_normal,
-            Mode::Insert => theme.ui.statusline_mode_insert,
-            Mode::Visual | Mode::VisualLine | Mode::VisualBlock => theme.ui.statusline_mode_visual,
-            Mode::Replace => theme.ui.statusline_mode_replace,
-            _ => theme.ui.statusline_mode_normal,
-        };
-
-        // Show pending operator if any
-        let pending = if editor.input_state.pending_operator.is_some()
-            || editor.input_state.count.is_some()
-        {
-            let mut s = String::new();
-            if let Some(count) = editor.input_state.count {
-                s.push_str(&count.to_string());
-            }
-            if let Some(op) = editor.input_state.pending_operator {
-                s.push(match op {
-                    Operator::Delete => 'd',
-                    Operator::Change => 'c',
-                    Operator::Yank => 'y',
-                    Operator::Indent => '>',
-                    Operator::Dedent => '<',
-                    Operator::AutoIndent => '=',
-                });
-            }
-            if !s.is_empty() {
-                format!(" [{}]", s)
-            } else {
-                String::new()
-            }
-        } else {
-            String::new()
-        };
+        // Pending operator/count, preformatted ("3d") — vim-parity state.
+        let mut pending = String::new();
+        if let Some(count) = editor.input_state.count {
+            pending.push_str(&count.to_string());
+        }
+        if let Some(op) = editor.input_state.pending_operator {
+            pending.push(match op {
+                Operator::Delete => 'd',
+                Operator::Change => 'c',
+                Operator::Yank => 'y',
+                Operator::Indent => '>',
+                Operator::Dedent => '<',
+                Operator::AutoIndent => '=',
+            });
+        }
 
         let filename = editor.buffer().display_name();
-        let read_only = if editor.buffer().is_read_only() {
-            " [RO]"
-        } else {
-            ""
-        };
-        let large_file = if editor.current_buffer_large_file_mode_active() {
-            " [large]"
-        } else {
-            ""
-        };
-        let modified = if editor.buffer().dirty { " [+]" } else { "" };
-
-        // Show macro recording indicator
-        let recording = if let Some(register) = editor.macros.recording_register() {
-            format!(" [recording @{}]", register)
-        } else {
-            String::new()
-        };
-
-        // Get project name (last component of project_root)
         let project_name = editor
             .project_root
             .as_ref()
             .and_then(|p| p.file_name())
-            .and_then(|n| n.to_str())
-            .map(|s| format!("[{}] ", s))
-            .unwrap_or_default();
+            .and_then(|n| n.to_str());
+        let total_lines = editor.buffer().len_lines().max(1);
 
-        let mode_display = format!(" {} ", mode_str);
-        let rest_left = format!(
-            "{}{} | {}{}{}{}{} ",
-            pending, recording, project_name, filename, large_file, read_only, modified
-        );
-
-        // Right side: LSP status, language and position
-        let lsp_status = editor.lsp_status.as_deref().unwrap_or("");
-        let lang = editor.syntax.language_name().unwrap_or("plain");
-        let right = if lsp_status.is_empty() {
-            format!(
-                " {} | {}:{} ",
-                lang,
-                editor.cursor.line + 1,
-                editor.cursor.col + 1
-            )
-        } else {
-            format!(
-                " {} | {} | {}:{} ",
-                lsp_status,
-                lang,
-                editor.cursor.line + 1,
-                editor.cursor.col + 1
-            )
+        // Render-reads-cache-only rule: everything below is cached editor
+        // state — no git2, LSP, or filesystem calls on this path.
+        let ctx = crate::statusline::StatusContext {
+            mode: editor.mode,
+            pending: &pending,
+            recording: editor.macros.recording_register(),
+            project: project_name,
+            filename: &filename,
+            modified: editor.buffer().dirty,
+            readonly: editor.buffer().is_read_only(),
+            large_file: editor.current_buffer_large_file_mode_active(),
+            branch: editor.git_branch.as_deref(),
+            diff: editor.current_git_diff_totals(),
+            diag: editor.current_diagnostic_counts(),
+            lang: editor.syntax.language_name().unwrap_or("plain"),
+            lsp_attached: editor.lsp_status.is_some(),
+            lsp_busy: editor.lsp_busy,
+            lsp_spinner: editor.lsp_spinner_frame(),
+            line: editor.cursor.line + 1,
+            col: editor.cursor.col + 1,
+            percent: ((editor.cursor.line + 1) * 100 / total_lines).min(100),
         };
+        let content = crate::statusline::build_status_segments(&ctx, glyphs, theme, basic);
 
-        // Calculate padding
-        let left_len = mode_display.len() + rest_left.len();
-        let padding = width.saturating_sub(left_len + right.len());
+        // No truncation on overflow — matches the pre-segment behavior (the
+        // terminal clips); padding saturates to zero. Width math must stay
+        // unicode-width based: icons and CJK filenames are not 1 byte = 1 col.
+        let used = crate::statusline::display_width(&content.left)
+            + crate::statusline::display_width(&content.right);
+        let padding = width.saturating_sub(used);
 
-        // Render status line: mode badge (colored) + rest (status bar colors)
-        // Mode badge with mode-specific color
-        execute!(
-            self.stdout,
-            SetBackgroundColor(mode_color),
-            SetForegroundColor(theme.ui.statusline_bg)
-        )?;
-        terminal_print!(self, "{}", mode_display);
-
-        // Rest of status line with standard colors
+        for seg in &content.left {
+            self.emit_status_segment(seg)?;
+        }
         execute!(
             self.stdout,
             SetBackgroundColor(theme.ui.statusline_bg),
             SetForegroundColor(theme.ui.statusline_fg)
         )?;
-        terminal_print!(
-            self,
-            "{}{:padding$}{}",
-            rest_left,
-            "",
-            right,
-            padding = padding
-        );
+        terminal_print!(self, "{:padding$}", "", padding = padding);
+        for seg in &content.right {
+            self.emit_status_segment(seg)?;
+        }
         execute!(self.stdout, ResetColor)?;
 
+        Ok(())
+    }
+
+    fn emit_status_segment(
+        &mut self,
+        seg: &crate::statusline::StatusSegment,
+    ) -> anyhow::Result<()> {
+        execute!(
+            self.stdout,
+            SetBackgroundColor(seg.bg),
+            SetForegroundColor(seg.fg)
+        )?;
+        if seg.bold {
+            execute!(self.stdout, SetAttribute(Attribute::Bold))?;
+        }
+        terminal_print!(self, "{}", seg.text);
+        if seg.bold {
+            // NormalIntensity clears bold without resetting colors (SGR 22).
+            execute!(self.stdout, SetAttribute(Attribute::NormalIntensity))?;
+        }
         Ok(())
     }
 
@@ -11658,8 +11622,57 @@ mod tests {
             "insert workflow render should show insert mode in statusline; output={rendered:?}"
         );
         assert!(
-            rendered.contains("[+]"),
+            rendered.contains('●'),
             "insert workflow render should show dirty marker in statusline; output={rendered:?}"
+        );
+    }
+
+    #[test]
+    fn statusline_rich_renders_powerline_segments() {
+        let mut editor = Editor::default();
+        editor.set_size(80, 12);
+        editor.replace_buffer_content("alpha\n");
+
+        let rendered = render_editor_to_string(&editor);
+
+        assert!(
+            rendered.contains("\u{e0b0}"),
+            "rich statusline should use powerline separators; output={rendered:?}"
+        );
+        assert!(
+            !rendered.contains(" | "),
+            "legacy pipe separators should be gone in rich mode; output={rendered:?}"
+        );
+    }
+
+    #[test]
+    fn statusline_minimal_renders_flat_ascii() {
+        let mut editor = Editor::default();
+        editor.settings.ui.basic = Some(true);
+        editor.set_size(80, 12);
+        editor.replace_buffer_content("alpha\n");
+
+        let rendered = render_editor_to_string(&editor);
+
+        assert!(
+            !rendered.contains("\u{e0b0}"),
+            "minimal statusline must not use powerline glyphs; output={rendered:?}"
+        );
+        assert!(rendered.contains("NORMAL"));
+    }
+
+    #[test]
+    fn statusline_renders_wide_filename_without_panic() {
+        let mut editor = Editor::default();
+        editor.set_size(80, 12);
+        editor.replace_buffer_content("alpha\n");
+        editor.buffer_mut().path = Some(std::path::PathBuf::from("日本語ファイル.rs"));
+
+        let rendered = render_editor_to_string(&editor);
+
+        assert!(
+            rendered.contains("日本語ファイル.rs"),
+            "double-width filename should render; output={rendered:?}"
         );
     }
 
@@ -11829,8 +11842,9 @@ mod tests {
             "statusline-only render should not repaint buffer text; output={rendered:?}"
         );
         assert!(
-            rendered.contains("LSP: ready"),
-            "statusline update render should include updated LSP status; output={rendered:?}"
+            rendered.contains('✓'),
+            "statusline update render should show the LSP idle indicator (raw \
+             status text moved to :checkhealth); output={rendered:?}"
         );
     }
 
@@ -12894,8 +12908,9 @@ mod tests {
             "combined editor/status render should include the marked row; output={rendered:?}"
         );
         assert!(
-            rendered.contains("LSP: ready"),
-            "combined editor/status render should include the statusline; output={rendered:?}"
+            rendered.contains('✓'),
+            "combined editor/status render should include the statusline's LSP \
+             indicator; output={rendered:?}"
         );
         assert!(
             !rendered.contains("alpha target") && !rendered.contains("gamma target"),

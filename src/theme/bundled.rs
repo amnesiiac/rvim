@@ -127,8 +127,42 @@ pub fn bundled_theme_names() -> Vec<&'static str> {
 
 #[cfg(test)]
 mod tests {
+    use super::load_theme_from_toml;
     use super::{bundled_theme_names, get_bundled_themes};
     use crossterm::style::Color;
+
+    #[test]
+    fn statusline_section_bg_falls_back_to_cursor_line() {
+        // No bundled theme defines section_bg yet, so every theme must
+        // resolve it to its own cursor_line color.
+        for theme in get_bundled_themes() {
+            assert_eq!(
+                theme.ui.statusline_section_bg, theme.ui.cursor_line,
+                "theme {} should fall back to cursor_line",
+                theme.name
+            );
+        }
+    }
+
+    #[test]
+    fn statusline_section_bg_parses_when_present() {
+        let toml = r##"
+[palette]
+bg = "#101010"
+
+[ui.statusline]
+section_bg = "#24283b"
+"##;
+        let theme = load_theme_from_toml("test-theme", toml).expect("theme should load");
+        assert_eq!(
+            theme.ui.statusline_section_bg,
+            Color::Rgb {
+                r: 0x24,
+                g: 0x28,
+                b: 0x3b
+            }
+        );
+    }
 
     #[test]
     fn github_light_is_a_complete_bundled_theme() {

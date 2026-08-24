@@ -44,6 +44,10 @@ pub struct HealthReportInput {
     pub profile_log_status: ProfileLogStatus,
     pub lsp_enabled: bool,
     pub lsp_servers: Vec<LspServerHealth>,
+    /// Resolved `[ui] basic` setting (rich vs minimal chrome).
+    pub ui_basic: bool,
+    /// Raw LSP status string (the statusline only shows an indicator).
+    pub lsp_status_raw: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -177,6 +181,22 @@ pub fn build_health_report(input: &HealthReportInput) -> String {
     ));
     report.push_str("- Open user config: `:ConfigOpen`\n");
     report.push_str("- View latest default config: `:ConfigDefaults`\n\n");
+
+    report.push_str("## UI\n");
+    if input.ui_basic {
+        report.push_str("- UI mode: minimal (`[ui] basic = true`)\n");
+    } else {
+        report
+            .push_str("- UI mode: rich (set `[ui] basic = true` in config.toml for plain ASCII)\n");
+        report.push_str(
+            "- Glyph probe: \u{e0b0} \u{e0a0} \u{f057} \u{f071} — if these are boxes, \
+             install a Nerd Font or set `[ui] basic = true`\n",
+        );
+    }
+    if let Some(status) = &input.lsp_status_raw {
+        report.push_str(&format!("- LSP status: {}\n", status));
+    }
+    report.push('\n');
 
     report.push_str("## Keymaps\n");
     report.push_str(&format!(
@@ -357,6 +377,7 @@ pub fn collect_health_report(
     settings: &crate::config::Settings,
     languages_config: &crate::config::LanguagesConfig,
     large_file: Option<LargeFileHealth>,
+    lsp_status_raw: Option<String>,
 ) -> String {
     let config_path = crate::config::config_path();
     let languages_path = crate::config::languages::languages_config_path();
@@ -381,6 +402,8 @@ pub fn collect_health_report(
         profile_log_path,
         lsp_enabled: settings.lsp.enabled,
         lsp_servers: lsp_server_health(settings),
+        ui_basic: settings.resolved_basic_ui(),
+        lsp_status_raw,
     })
 }
 
@@ -765,6 +788,8 @@ mod tests {
             profile_log_path: PathBuf::from(PROFILE_LOG_PATH),
             profile_log_status: ProfileLogStatus::Missing,
             lsp_enabled: true,
+            ui_basic: false,
+            lsp_status_raw: None,
             lsp_servers: vec![LspServerHealth {
                 language: "rust",
                 enabled: true,
@@ -782,6 +807,43 @@ mod tests {
         assert!(report.contains("/tmp/nevi_profile.log"));
         assert!(report.contains("NEVI_PROFILE=1"));
         assert!(report.contains("rust: enabled (rust-analyzer)"));
+    }
+
+    #[test]
+    fn health_report_shows_ui_mode_and_glyph_probe() {
+        let mut input = HealthReportInput {
+            config_path: None,
+            config_status: FileCheckStatus::Unavailable,
+            languages_path: None,
+            languages_status: FileCheckStatus::Unavailable,
+            keymap: default_keymap_health(),
+            external_tools: default_external_tools_health(),
+            large_file: None,
+            profile_enabled: false,
+            profile_log_path: PathBuf::from(PROFILE_LOG_PATH),
+            profile_log_status: ProfileLogStatus::Missing,
+            lsp_enabled: false,
+            lsp_servers: vec![],
+            ui_basic: false,
+            lsp_status_raw: Some("rust-analyzer: idle".to_string()),
+        };
+
+        let report = build_health_report(&input);
+        assert!(report.contains("UI mode: rich"));
+        assert!(
+            report.contains("basic = true"),
+            "rich mode should mention the opt-out"
+        );
+        assert!(report.contains("\u{e0b0}"), "rich mode shows a glyph probe");
+        assert!(report.contains("rust-analyzer: idle"));
+
+        input.ui_basic = true;
+        let report = build_health_report(&input);
+        assert!(report.contains("UI mode: minimal"));
+        assert!(
+            !report.contains("\u{e0b0}"),
+            "minimal mode needs no glyph probe"
+        );
     }
 
     #[test]
@@ -808,6 +870,8 @@ mod tests {
             }]),
             lsp_enabled: false,
             lsp_servers: Vec::new(),
+            ui_basic: false,
+            lsp_status_raw: None,
         });
 
         assert!(report.contains("Profiling: enabled"));
@@ -838,6 +902,8 @@ mod tests {
                 max_us: 42,
             }]),
             lsp_enabled: true,
+            ui_basic: false,
+            lsp_status_raw: None,
             lsp_servers: Vec::new(),
         });
 
@@ -859,6 +925,8 @@ mod tests {
             profile_log_path: PathBuf::from(PROFILE_LOG_PATH),
             profile_log_status: ProfileLogStatus::Missing,
             lsp_enabled: true,
+            ui_basic: false,
+            lsp_status_raw: None,
             lsp_servers: Vec::new(),
         });
 
@@ -896,6 +964,8 @@ mod tests {
             profile_log_path: PathBuf::from(PROFILE_LOG_PATH),
             profile_log_status: ProfileLogStatus::Missing,
             lsp_enabled: true,
+            ui_basic: false,
+            lsp_status_raw: None,
             lsp_servers: Vec::new(),
         });
 
@@ -925,6 +995,8 @@ mod tests {
             profile_log_path: PathBuf::from(PROFILE_LOG_PATH),
             profile_log_status: ProfileLogStatus::Missing,
             lsp_enabled: true,
+            ui_basic: false,
+            lsp_status_raw: None,
             lsp_servers: Vec::new(),
             external_tools: ExternalToolsHealth {
                 built_in_notes: vec![

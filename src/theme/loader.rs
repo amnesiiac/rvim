@@ -109,6 +109,8 @@ pub struct StatuslineToml {
     pub mode_visual: Option<String>,
     pub mode_command: Option<String>,
     pub mode_replace: Option<String>,
+    /// Optional mid-segment background; falls back to the theme's cursor_line
+    pub section_bg: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -266,6 +268,14 @@ fn load_theme_from_toml_inner(name: &str, toml: &ThemeToml) -> Theme {
     };
 
     // Parse UI colors
+    // Hoisted so statusline_section_bg can fall back to the theme's own
+    // resolved cursor_line rather than the base default.
+    let cursor_line = toml
+        .ui
+        .cursor_line
+        .as_ref()
+        .and_then(|v| resolve_color(v, palette))
+        .unwrap_or(base.ui.cursor_line);
     let ui = UiColors {
         background: toml
             .ui
@@ -279,12 +289,7 @@ fn load_theme_from_toml_inner(name: &str, toml: &ThemeToml) -> Theme {
             .as_ref()
             .and_then(|v| resolve_color(v, palette))
             .unwrap_or(base.ui.foreground),
-        cursor_line: toml
-            .ui
-            .cursor_line
-            .as_ref()
-            .and_then(|v| resolve_color(v, palette))
-            .unwrap_or(base.ui.cursor_line),
+        cursor_line,
         selection: toml
             .ui
             .selection
@@ -353,6 +358,13 @@ fn load_theme_from_toml_inner(name: &str, toml: &ThemeToml) -> Theme {
             .as_ref()
             .and_then(|v| resolve_color(v, palette))
             .unwrap_or(base.ui.statusline_mode_replace),
+        statusline_section_bg: toml
+            .ui
+            .statusline
+            .section_bg
+            .as_ref()
+            .and_then(|v| resolve_color(v, palette))
+            .unwrap_or(cursor_line),
 
         popup_bg: toml
             .ui
