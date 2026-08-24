@@ -276,7 +276,7 @@ scroll_off = 8
 colorscheme = "onedark"
 
 [ui]
-basic = false
+style = "rich"
 
 [terminal]
 popup_width_ratio = 0.9
@@ -306,7 +306,7 @@ your terminal — if you see boxes instead of icons, either install one or set:
 
 ```toml
 [ui]
-basic = true
+style = "minimal"
 ```
 
 for a plain-ASCII UI with the same layout. If you already had

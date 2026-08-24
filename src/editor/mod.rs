@@ -2375,7 +2375,7 @@ impl Editor {
     /// stored field: resolution is two bool reads, and duplicated state on
     /// Editor has a history of desyncing (see the pane-mirroring invariant).
     pub fn ui_glyphs(&self) -> &'static crate::ui_glyphs::UiGlyphs {
-        crate::ui_glyphs::UiGlyphs::for_basic(self.settings.resolved_basic_ui())
+        crate::ui_glyphs::UiGlyphs::for_minimal(self.settings.resolved_ui_style().is_minimal())
     }
 
     /// Set the LSP status (persistent, shown in status bar)

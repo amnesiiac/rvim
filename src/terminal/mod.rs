@@ -3101,7 +3101,7 @@ impl Terminal {
         let width = editor.term_width as usize;
         let theme = editor.theme();
         let glyphs = editor.ui_glyphs();
-        let basic = editor.settings.resolved_basic_ui();
+        let minimal = editor.settings.resolved_ui_style().is_minimal();
 
         // Pending operator/count, preformatted ("3d") — vim-parity state.
         let mut pending = String::new();
@@ -3149,7 +3149,7 @@ impl Terminal {
             col: editor.cursor.col + 1,
             percent: ((editor.cursor.line + 1) * 100 / total_lines).min(100),
         };
-        let content = crate::statusline::build_status_segments(&ctx, glyphs, theme, basic);
+        let content = crate::statusline::build_status_segments(&ctx, glyphs, theme, minimal);
 
         // No truncation on overflow — matches the pre-segment behavior (the
         // terminal clips); padding saturates to zero. Width math must stay
@@ -11648,7 +11648,7 @@ mod tests {
     #[test]
     fn statusline_minimal_renders_flat_ascii() {
         let mut editor = Editor::default();
-        editor.settings.ui.basic = Some(true);
+        editor.settings.ui.style = Some(crate::config::UiStyle::Minimal);
         editor.set_size(80, 12);
         editor.replace_buffer_content("alpha\n");
 

@@ -58,8 +58,8 @@ pub static MINIMAL: UiGlyphs = UiGlyphs {
 };
 
 impl UiGlyphs {
-    pub fn for_basic(basic: bool) -> &'static UiGlyphs {
-        if basic { &MINIMAL } else { &RICH }
+    pub fn for_minimal(minimal: bool) -> &'static UiGlyphs {
+        if minimal { &MINIMAL } else { &RICH }
     }
 }
 
@@ -96,8 +96,8 @@ mod tests {
     }
 
     #[test]
-    fn for_basic_selects_tables() {
-        assert!(std::ptr::eq(UiGlyphs::for_basic(true), &MINIMAL));
-        assert!(std::ptr::eq(UiGlyphs::for_basic(false), &RICH));
+    fn for_minimal_selects_tables() {
+        assert!(std::ptr::eq(UiGlyphs::for_minimal(true), &MINIMAL));
+        assert!(std::ptr::eq(UiGlyphs::for_minimal(false), &RICH));
     }
 }

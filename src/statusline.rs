@@ -101,7 +101,7 @@ fn push_file_markers(
     glyphs: &UiGlyphs,
     theme: &Theme,
     bg: Color,
-    basic: bool,
+    minimal: bool,
 ) {
     let fg = theme.ui.statusline_fg;
     if ctx.modified {
@@ -118,7 +118,7 @@ fn push_file_markers(
     }
     if let Some(register) = ctx.recording {
         // Minimal's prefix opens a bracket that needs closing; rich is a glyph.
-        let close = if basic { "]" } else { "" };
+        let close = if minimal { "]" } else { "" };
         out.push(seg(
             format!(" {}{}{}", glyphs.recording, register, close),
             theme.diagnostic.error,
@@ -131,9 +131,9 @@ pub fn build_status_segments(
     ctx: &StatusContext,
     glyphs: &UiGlyphs,
     theme: &Theme,
-    basic: bool,
+    minimal: bool,
 ) -> StatusLineContent {
-    if basic {
+    if minimal {
         build_minimal(ctx, glyphs, theme)
     } else {
         build_rich(ctx, glyphs, theme)
@@ -369,8 +369,9 @@ mod tests {
     fn zero_diagnostics_are_hidden() {
         let mut ctx = ctx_base();
         ctx.diag = (0, 0);
-        for basic in [false, true] {
-            let content = build_status_segments(&ctx, UiGlyphs::for_basic(basic), &theme(), basic);
+        for minimal in [false, true] {
+            let content =
+                build_status_segments(&ctx, UiGlyphs::for_minimal(minimal), &theme(), minimal);
             let all = all_text(&content);
             assert!(!all.contains("E:0"));
             assert!(!all.contains('\u{f057}'));

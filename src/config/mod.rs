@@ -46,11 +46,15 @@ impl Default for Settings {
 }
 
 impl Settings {
-    /// Resolve the UI chrome style. Unset `[ui] basic` falls back to the
+    /// Resolve the UI chrome style. Unset `[ui] style` falls back to the
     /// legacy `editor.use_nerd_font_icons` flag so users who already opted
     /// out of Nerd Fonts keep a glyph-free UI without editing their config.
-    pub fn resolved_basic_ui(&self) -> bool {
-        self.ui.basic.unwrap_or(!self.editor.use_nerd_font_icons)
+    pub fn resolved_ui_style(&self) -> UiStyle {
+        self.ui.style.unwrap_or(if self.editor.use_nerd_font_icons {
+            UiStyle::Rich
+        } else {
+            UiStyle::Minimal
+        })
     }
 }
 
@@ -58,9 +62,24 @@ impl Settings {
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
 pub struct UiSettings {
-    /// true = minimal ASCII chrome; false = rich (Nerd Font icons, powerline
-    /// statusline segments). Default (unset) = rich.
-    pub basic: Option<bool>,
+    /// "rich" (Nerd Font icons, powerline statusline segments) or "minimal"
+    /// (plain ASCII, flat statusline). Default (unset) = rich.
+    pub style: Option<UiStyle>,
+}
+
+/// UI chrome style — an enum rather than a bool so future styles can be
+/// added without a second flag.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum UiStyle {
+    Rich,
+    Minimal,
+}
+
+impl UiStyle {
+    pub fn is_minimal(self) -> bool {
+        self == UiStyle::Minimal
+    }
 }
 
 /// Autosave mode configuration
@@ -1025,8 +1044,8 @@ fn default_config_template() -> &'static str {
 # UI CHROME
 # ============================================================================
 # [ui]
-# basic = false              # true = plain ASCII UI (no Nerd Font required);
-#                            # false = rich icons + powerline statusline (default)
+# style = "rich"             # "rich" = icons + powerline statusline (default);
+#                            # "minimal" = plain ASCII UI (no Nerd Font required)
 
 # ============================================================================
 # FLOATING TERMINAL
@@ -1745,27 +1764,29 @@ mod tests {
     use super::*;
 
     #[test]
-    fn ui_basic_resolution_combinations() {
+    fn ui_style_resolution_combinations() {
         let mut s = Settings::default();
         // nothing set → rich
-        assert!(!s.resolved_basic_ui());
+        assert_eq!(s.resolved_ui_style(), UiStyle::Rich);
         // legacy nerd-font opt-out implies minimal
         s.editor.use_nerd_font_icons = false;
-        assert!(s.resolved_basic_ui());
-        // explicit [ui] basic wins over legacy flag
-        s.ui.basic = Some(false);
-        assert!(!s.resolved_basic_ui());
-        s.ui.basic = Some(true);
+        assert_eq!(s.resolved_ui_style(), UiStyle::Minimal);
+        // explicit [ui] style wins over legacy flag
+        s.ui.style = Some(UiStyle::Rich);
+        assert_eq!(s.resolved_ui_style(), UiStyle::Rich);
+        s.ui.style = Some(UiStyle::Minimal);
         s.editor.use_nerd_font_icons = true;
-        assert!(s.resolved_basic_ui());
+        assert_eq!(s.resolved_ui_style(), UiStyle::Minimal);
     }
 
     #[test]
     fn ui_section_parses_and_is_optional() {
-        let s: Settings = toml::from_str("[ui]\nbasic = true\n").expect("parse [ui]");
-        assert_eq!(s.ui.basic, Some(true));
+        let s: Settings = toml::from_str("[ui]\nstyle = \"minimal\"\n").expect("parse [ui]");
+        assert_eq!(s.ui.style, Some(UiStyle::Minimal));
+        let s: Settings = toml::from_str("[ui]\nstyle = \"rich\"\n").expect("parse [ui]");
+        assert_eq!(s.ui.style, Some(UiStyle::Rich));
         let s: Settings = toml::from_str("").expect("parse empty config");
-        assert_eq!(s.ui.basic, None);
+        assert_eq!(s.ui.style, None);
     }
 
     #[test]
