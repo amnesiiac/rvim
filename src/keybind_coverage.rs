@@ -77,6 +77,31 @@ const KEYBIND_COVERAGE: &[KeybindCoverage] = &[
     ),
     vim_oracle("go", "Go to [count] byte of the buffer", "go to byte"),
     vim_oracle(
+        "gj",
+        "Move down by display line",
+        "display line down without wrap",
+    ),
+    vim_oracle(
+        "gk",
+        "Move up by display line",
+        "display line up without wrap",
+    ),
+    vim_oracle(
+        "g0",
+        "Move to start of display line",
+        "display line start without wrap",
+    ),
+    vim_oracle(
+        "g$",
+        "Move to end of display line",
+        "display line end without wrap",
+    ),
+    vim_oracle(
+        "g^",
+        "Move to first non-blank of display line",
+        "display line first non blank without wrap",
+    ),
+    vim_oracle(
         "<CR>",
         "Move to first non-blank of next line",
         "enter next line first nonblank",

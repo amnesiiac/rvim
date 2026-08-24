@@ -10,13 +10,13 @@ the test suite enforces, so it cannot drift from what is actually verified.
 ## Summary
 
 - **329 keybinds implemented** ([KEYBINDINGS.md](KEYBINDINGS.md)), **39 planned** ([KEYBINDS_ROADMAP.md](KEYBINDS_ROADMAP.md))
-- **73 keybinds in the coverage inventory**, each mapped to the automated test that protects it:
-  - 71 verified against real Neovim (v0.11.3) by the Vim oracle
+- **78 keybinds in the coverage inventory**, each mapped to the automated test that protects it:
+  - 76 verified against real Neovim (v0.11.3) by the Vim oracle
   - 1 protected by focused Nevi regression tests
   - 1 covered as default-keymap plumbing with dedicated tests
-- **227 oracle cases**: motions (107), editing (60), insert-entry (11), open-line (20), replace (27), undo-redo (2)
+- **233 oracle cases**: motions (113), editing (60), insert-entry (11), open-line (20), replace (27), undo-redo (2)
 - **0 tracked coverage gaps**
-- **103 of 426 documented keybind rows map to an inventoried keybind**; the rest work today but are not yet individually tracked ([full list below](#documented-but-not-yet-inventoried))
+- **108 of 426 documented keybind rows map to an inventoried keybind**; the rest work today but are not yet individually tracked ([full list below](#documented-but-not-yet-inventoried))
 
 ## How the Vim oracle works
 
@@ -59,6 +59,11 @@ claim protection.
 | `])` | Move to next unmatched ) | `unmatched close paren skips nested pair` |
 | `gm` | Move to middle of the screen line | `gm on short line` |
 | `go` | Go to [count] byte of the buffer | `go to byte` |
+| `gj` | Move down by display line | `display line down without wrap` |
+| `gk` | Move up by display line | `display line up without wrap` |
+| `g0` | Move to start of display line | `display line start without wrap` |
+| `g$` | Move to end of display line | `display line end without wrap` |
+| `g^` | Move to first non-blank of display line | `display line first non blank without wrap` |
 | `<CR>` | Move to first non-blank of next line | `enter next line first nonblank` |
 | `gg` | Move to start of file | `file top` |
 | `G` | Move to end of file | `file bottom` |
@@ -136,16 +141,11 @@ like `dw` are tracked as single inventory entries, so their building-block
 rows may already be covered compositionally.)
 
 <details>
-<summary>323 untracked rows</summary>
+<summary>318 untracked rows</summary>
 
 | Keybind | Behavior |
 |---------|----------|
 | `-` | Move to first non-blank of previous line |
-| `gj` | Move down by display line when wrap is enabled |
-| `gk` | Move up by display line when wrap is enabled |
-| `g0` | Move to start of display line when wrap is enabled |
-| `g$` | Move to end of display line when wrap is enabled |
-| `g^` | Move to first non-blank of display line when wrap is enabled |
 | `{` | Move to previous blank line (paragraph) |
 | `}` | Move to next blank line (paragraph) |
 | `(` | Move to previous sentence |
