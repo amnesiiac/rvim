@@ -5507,6 +5507,14 @@ impl Terminal {
 
         // Use theme colors for finder
         let theme = editor.theme();
+        let glyphs = editor.ui_glyphs();
+        let minimal = editor.settings.resolved_ui_style().is_minimal();
+        // Rich mode reserves one column per result row for the selection bar.
+        let bar_col = if glyphs.finder_selection_bar.is_empty() {
+            0
+        } else {
+            1
+        };
         let border_color = theme.ui.finder_border;
         let title_color = theme.ui.finder_prompt;
         let selected_bg = theme.ui.finder_selected;
@@ -5540,7 +5548,7 @@ impl Terminal {
             SetForegroundColor(border_color),
             SetBackgroundColor(finder_bg)
         )?;
-        write!(self.stdout, "\u{250c}")?; // ┌
+        write!(self.stdout, "{}", glyphs.corner_tl)?;
         let title = match editor.finder.mode {
             crate::finder::FinderMode::Files => " Find Files ",
             crate::finder::FinderMode::Grep => " Live Grep ",
@@ -5553,16 +5561,24 @@ impl Terminal {
             crate::finder::FinderMode::Terminals => " Terminals ",
             crate::finder::FinderMode::Keymaps => " Key Maps ",
         };
+        // Rich mode prefixes an icon inside the border title; centering must
+        // count chars (columns), not bytes — the icon glyph is multi-byte.
+        let title = if glyphs.finder_title_icon.is_empty() {
+            title.to_string()
+        } else {
+            format!(" {}{}", glyphs.finder_title_icon, &title[1..])
+        };
+        let title_cols = title.chars().count();
 
         if preview_enabled {
             // Title centered over results panel
-            let title_start = (results_width.saturating_sub(title.len())) / 2;
+            let title_start = (results_width.saturating_sub(title_cols)) / 2;
             for i in 1..=results_width {
                 if i == title_start + 1 {
                     queue!(self.stdout, SetForegroundColor(title_color))?;
                     write!(self.stdout, "{}", title)?;
                     queue!(self.stdout, SetForegroundColor(border_color))?;
-                } else if i > title_start && i <= title_start + title.len() {
+                } else if i > title_start && i <= title_start + title_cols {
                     // Skip - already printed title
                 } else {
                     write!(self.stdout, "\u{2500}")?; // ─
@@ -5571,44 +5587,56 @@ impl Terminal {
             // Separator junction
             write!(self.stdout, "\u{252c}")?; // ┬
 
-            // Preview header with filename
+            // Preview header with filename (rich prefixes the file's devicon)
             let preview_title = if let Some(item) = editor.finder.selected_item() {
                 let filename = item
                     .path
                     .file_name()
                     .and_then(|n| n.to_str())
                     .unwrap_or("Preview");
-                format!(" {} ", filename)
+                if minimal {
+                    format!(" {} ", filename)
+                } else {
+                    let chip = item
+                        .icon
+                        .unwrap_or_else(|| FuzzyFinder::get_file_icon(&item.path));
+                    format!(
+                        " {} {} ",
+                        crate::ui_glyphs::devicon_for_chip(chip),
+                        filename
+                    )
+                }
             } else {
                 " Preview ".to_string()
             };
-            let preview_title_start = (preview_width.saturating_sub(preview_title.len())) / 2;
+            let preview_title_cols = preview_title.chars().count();
+            let preview_title_start = (preview_width.saturating_sub(preview_title_cols)) / 2;
             for i in 0..preview_width {
                 if i == preview_title_start {
                     queue!(self.stdout, SetForegroundColor(title_color))?;
                     write!(self.stdout, "{}", preview_title)?;
                     queue!(self.stdout, SetForegroundColor(border_color))?;
-                } else if i > preview_title_start && i < preview_title_start + preview_title.len() {
+                } else if i > preview_title_start && i < preview_title_start + preview_title_cols {
                     // Skip - already printed title
                 } else {
                     write!(self.stdout, "\u{2500}")?; // ─
                 }
             }
         } else {
-            let title_start = (win.width as usize - title.len()) / 2;
+            let title_start = (win.width as usize - title_cols) / 2;
             for i in 1..(win.width - 1) {
                 if i as usize == title_start {
                     queue!(self.stdout, SetForegroundColor(title_color))?;
                     write!(self.stdout, "{}", title)?;
                     queue!(self.stdout, SetForegroundColor(border_color))?;
-                } else if i as usize >= title_start && (i as usize) < title_start + title.len() {
+                } else if i as usize >= title_start && (i as usize) < title_start + title_cols {
                     // Skip - already printed title
                 } else {
                     write!(self.stdout, "\u{2500}")?; // ─
                 }
             }
         }
-        write!(self.stdout, "\u{2510}")?; // ┐
+        write!(self.stdout, "{}", glyphs.corner_tr)?;
 
         // Layout: top border, items list, separator, input line, bottom border
         // Height calculation: total height - 4 (top border, separator, input, bottom border)
@@ -5652,99 +5680,43 @@ impl Terminal {
                     queue!(self.stdout, SetBackgroundColor(selected_bg))?;
                 }
 
-                // Get file type indicator (2 chars + space)
+                // Selection accent bar column (rich only; reserved on every
+                // item row so columns stay aligned)
+                if bar_col == 1 {
+                    if is_selected {
+                        queue!(self.stdout, SetForegroundColor(title_color))?;
+                        write!(self.stdout, "{}", glyphs.finder_selection_bar)?;
+                    } else {
+                        write!(self.stdout, " ")?;
+                    }
+                }
+
+                // File type indicator: two-char chip (minimal) or devicon (rich),
+                // both 3 columns wide and tinted by the shared chip color table
                 let icon = item
                     .icon
                     .unwrap_or_else(|| FuzzyFinder::get_file_icon(&item.path));
-                let icon_color = match icon {
-                    "TR" => Color::Rgb {
-                        r: 90,
-                        g: 210,
-                        b: 120,
-                    }, // Terminal - green
-                    "RS" => Color::Rgb {
-                        r: 255,
-                        g: 100,
-                        b: 50,
-                    }, // Rust - orange
-                    "TS" | "TX" => Color::Rgb {
-                        r: 50,
-                        g: 150,
-                        b: 255,
-                    }, // TypeScript - blue
-                    "JS" | "JX" => Color::Rgb {
-                        r: 255,
-                        g: 220,
-                        b: 50,
-                    }, // JavaScript - yellow
-                    "PY" => Color::Rgb {
-                        r: 80,
-                        g: 180,
-                        b: 80,
-                    }, // Python - green
-                    "GO" => Color::Rgb {
-                        r: 100,
-                        g: 200,
-                        b: 220,
-                    }, // Go - cyan
-                    "RB" => Color::Rgb {
-                        r: 220,
-                        g: 50,
-                        b: 50,
-                    }, // Ruby - red
-                    "HT" => Color::Rgb {
-                        r: 230,
-                        g: 100,
-                        b: 50,
-                    }, // HTML - orange
-                    "CS" | "SC" => Color::Rgb {
-                        r: 100,
-                        g: 150,
-                        b: 255,
-                    }, // CSS - blue
-                    "MD" => Color::Rgb {
-                        r: 150,
-                        g: 150,
-                        b: 150,
-                    }, // Markdown - gray
-                    "YM" | "TM" | "CF" => Color::Rgb {
-                        r: 180,
-                        g: 140,
-                        b: 100,
-                    }, // Config - tan
-                    "GT" => Color::Rgb {
-                        r: 240,
-                        g: 80,
-                        b: 50,
-                    }, // Git - red-orange
-                    "EN" => Color::Rgb {
-                        r: 255,
-                        g: 200,
-                        b: 50,
-                    }, // Env - yellow
-                    "SH" | "ZS" | "FS" => Color::Rgb {
-                        r: 100,
-                        g: 200,
-                        b: 100,
-                    }, // Shell - green
-                    _ => Color::Rgb {
-                        r: 120,
-                        g: 120,
-                        b: 120,
-                    }, // Default - gray
-                };
+                let icon_color = crate::ui_glyphs::file_chip_color(icon);
                 queue!(self.stdout, SetForegroundColor(icon_color))?;
-                write!(self.stdout, "{} ", icon)?;
+                if minimal {
+                    write!(self.stdout, "{} ", icon)?;
+                } else {
+                    write!(
+                        self.stdout,
+                        "{}  ",
+                        crate::ui_glyphs::devicon_for_chip(icon)
+                    )?;
+                }
 
                 // Truncate display to fit and highlight matches
-                // Leave space for icon (3 chars) and scroll indicator if needed
-                let icon_width = 3; // icon + space
+                // Leave space for the icon cell and scroll indicator if needed
+                let icon_width = 3; // icon cell
                 let base_width = if show_scroll_indicator {
                     results_width.saturating_sub(2) // -1 for scroll indicator, -1 for spacing
                 } else {
                     results_width.saturating_sub(1) // -1 for spacing
                 };
-                let max_len = base_width.saturating_sub(icon_width);
+                let max_len = base_width.saturating_sub(icon_width + bar_col);
                 let display_chars: Vec<char> = item.display.chars().take(max_len).collect();
 
                 // Reset foreground color for text
@@ -5994,10 +5966,10 @@ impl Terminal {
         queue!(self.stdout, SetForegroundColor(mode_color))?;
         write!(self.stdout, "[{}]", mode_str)?;
         queue!(self.stdout, SetForegroundColor(finder_fg))?;
-        write!(self.stdout, " > ")?;
+        write!(self.stdout, "{}", glyphs.finder_prompt)?;
 
-        // Query text
-        let prefix_len = 6; // "[N] > " or "[I] > "
+        // Query text; both prompt variants occupy 3 columns after "[N]"/"[I]"
+        let prefix_len = 6; // "[N] > " or "[N] <icon> "
         let query_display: String = editor
             .finder
             .query
@@ -6025,7 +5997,7 @@ impl Terminal {
             cursor::MoveTo(win.x, win.y + win.height - 1),
             SetForegroundColor(border_color)
         )?;
-        write!(self.stdout, "\u{2514}")?; // └
+        write!(self.stdout, "{}", glyphs.corner_bl)?;
 
         if preview_enabled {
             // Status centered over results panel, preview indicator shown
@@ -6069,7 +6041,7 @@ impl Terminal {
                 }
             }
         }
-        write!(self.stdout, "\u{2518}")?; // ┘
+        write!(self.stdout, "{}", glyphs.corner_br)?;
 
         queue!(
             self.stdout,
@@ -11437,10 +11409,11 @@ mod tests {
             );
             let rendered = render_finder_to_string(&editor, inherited_background);
             let expected_top_border = format!(
-                "{}{}{}┌",
+                "{}{}{}{}",
                 cursor_position_sequence(win.x, win.y),
                 foreground_sequence(theme.ui.finder_border),
                 background_sequence(theme.ui.finder_bg),
+                editor.ui_glyphs().corner_tl,
             );
             let rendered_prefix: String = rendered.chars().take(80).collect();
 
@@ -11449,6 +11422,72 @@ mod tests {
                 "finder top border should establish {theme_name} background on its first frame; expected={expected_top_border:?}, actual prefix={rendered_prefix:?}"
             );
         }
+    }
+
+    #[test]
+    fn finder_rich_renders_rounded_corners_and_devicons() {
+        let mut editor = Editor::default();
+        editor.set_size(120, 30);
+        editor
+            .finder
+            .open_harpoon(vec![PathBuf::from("alpha.rs"), PathBuf::from("beta.ts")]);
+        editor.mode = Mode::Finder;
+
+        let rendered = render_finder_to_string(&editor, Color::Black);
+
+        assert!(
+            rendered.contains('╭') && rendered.contains('╯'),
+            "rich finder should use rounded corners"
+        );
+        assert!(!rendered.contains('┌') && !rendered.contains('┘'));
+        assert!(
+            rendered.contains('\u{e7a8}'),
+            "rust devicon should replace the RS chip; output={rendered:?}"
+        );
+        assert!(!rendered.contains("RS "));
+    }
+
+    #[test]
+    fn finder_minimal_matches_legacy_chrome() {
+        let mut editor = Editor::default();
+        editor.settings.ui.style = Some(crate::config::UiStyle::Minimal);
+        editor.set_size(120, 30);
+        editor.finder.open_harpoon(vec![PathBuf::from("alpha.rs")]);
+        editor.mode = Mode::Finder;
+
+        let rendered = render_finder_to_string(&editor, Color::Black);
+
+        assert!(rendered.contains('┌'), "minimal keeps square corners");
+        // A color sequence sits between the mode indicator and the arrow
+        // (same as the legacy renderer), so assert the pieces separately.
+        assert!(
+            rendered.contains("[I]") || rendered.contains("[N]"),
+            "minimal keeps the mode indicator; output={rendered:?}"
+        );
+        assert!(
+            rendered.contains(" > "),
+            "minimal keeps the legacy arrow prompt; output={rendered:?}"
+        );
+        assert!(rendered.contains("RS "), "minimal keeps two-char chips");
+        assert!(!rendered.contains('╭') && !rendered.contains('▌'));
+    }
+
+    #[test]
+    fn finder_rich_marks_selected_row_with_accent_bar() {
+        let mut editor = Editor::default();
+        editor.set_size(120, 30);
+        editor
+            .finder
+            .open_harpoon(vec![PathBuf::from("alpha.rs"), PathBuf::from("beta.ts")]);
+        editor.mode = Mode::Finder;
+
+        let rendered = render_finder_to_string(&editor, Color::Black);
+
+        assert_eq!(
+            rendered.matches('▌').count(),
+            1,
+            "exactly one selected-row accent bar; output={rendered:?}"
+        );
     }
 
     #[test]
