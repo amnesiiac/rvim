@@ -1815,7 +1815,7 @@ impl Terminal {
                     // Diagnostic sign (second char) - priority: error > warning > info > hint
                     if has_error {
                         execute!(self.stdout, SetForegroundColor(theme.diagnostic.error))?;
-                        terminal_print!(self, "●");
+                        terminal_print!(self, "{}", editor.ui_glyphs().gutter_error);
                         execute!(
                             self.stdout,
                             SetForegroundColor(editor_fg),
@@ -1823,7 +1823,7 @@ impl Terminal {
                         )?;
                     } else if has_warning {
                         execute!(self.stdout, SetForegroundColor(theme.diagnostic.warning))?;
-                        terminal_print!(self, "▲");
+                        terminal_print!(self, "{}", editor.ui_glyphs().gutter_warn);
                         execute!(
                             self.stdout,
                             SetForegroundColor(editor_fg),
@@ -1831,7 +1831,7 @@ impl Terminal {
                         )?;
                     } else if has_info {
                         execute!(self.stdout, SetForegroundColor(theme.diagnostic.info))?;
-                        terminal_print!(self, "■");
+                        terminal_print!(self, "{}", editor.ui_glyphs().gutter_info);
                         execute!(
                             self.stdout,
                             SetForegroundColor(editor_fg),
@@ -1839,7 +1839,7 @@ impl Terminal {
                         )?;
                     } else if has_hint {
                         execute!(self.stdout, SetForegroundColor(theme.diagnostic.hint))?;
-                        terminal_print!(self, "○");
+                        terminal_print!(self, "{}", editor.ui_glyphs().gutter_hint);
                         execute!(
                             self.stdout,
                             SetForegroundColor(editor_fg),
@@ -2140,7 +2140,7 @@ impl Terminal {
                 // Diagnostic sign (second char) - priority: error > warning > info > hint
                 if has_error {
                     execute!(self.stdout, SetForegroundColor(theme.diagnostic.error))?;
-                    terminal_print!(self, "●");
+                    terminal_print!(self, "{}", editor.ui_glyphs().gutter_error);
                     execute!(
                         self.stdout,
                         SetForegroundColor(editor_fg),
@@ -2148,7 +2148,7 @@ impl Terminal {
                     )?;
                 } else if has_warning {
                     execute!(self.stdout, SetForegroundColor(theme.diagnostic.warning))?;
-                    terminal_print!(self, "▲");
+                    terminal_print!(self, "{}", editor.ui_glyphs().gutter_warn);
                     execute!(
                         self.stdout,
                         SetForegroundColor(editor_fg),
@@ -2156,7 +2156,7 @@ impl Terminal {
                     )?;
                 } else if has_info {
                     execute!(self.stdout, SetForegroundColor(theme.diagnostic.info))?;
-                    terminal_print!(self, "■");
+                    terminal_print!(self, "{}", editor.ui_glyphs().gutter_info);
                     execute!(
                         self.stdout,
                         SetForegroundColor(editor_fg),
@@ -2164,7 +2164,7 @@ impl Terminal {
                     )?;
                 } else if has_hint {
                     execute!(self.stdout, SetForegroundColor(theme.diagnostic.hint))?;
-                    terminal_print!(self, "○");
+                    terminal_print!(self, "{}", editor.ui_glyphs().gutter_hint);
                     execute!(
                         self.stdout,
                         SetForegroundColor(editor_fg),
@@ -2461,6 +2461,8 @@ impl Terminal {
 
         // Use theme colors for explorer
         let theme = editor.theme();
+        let glyphs = editor.ui_glyphs();
+        let minimal = editor.settings.resolved_ui_style().is_minimal();
         let explorer_bg = theme.ui.explorer_bg;
         let explorer_fg = theme.ui.foreground;
         let selected_bg = theme.ui.explorer_selected;
@@ -2492,7 +2494,7 @@ impl Terminal {
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_else(|| "Explorer".to_string());
 
-        let header = format!(" {} ", project_name);
+        let header = format!(" {}{} ", glyphs.explorer_header_icon, project_name);
         let header = if header.len() > width {
             format!("{}…", &header[..width.saturating_sub(1)])
         } else {
@@ -2553,15 +2555,25 @@ impl Terminal {
                     selected - idx
                 };
 
-                if is_selected {
+                // Rich mode turns the selected row's leading column into an
+                // accent bar; rel_line is 0 there, so the number still fits.
+                if is_selected && !minimal {
+                    execute!(self.stdout, SetForegroundColor(dir_color))?;
+                    terminal_print!(self, "▌");
                     execute!(self.stdout, SetForegroundColor(current_line_num_color))?;
+                    terminal_print!(self, "{:>2} ", rel_line);
                 } else {
-                    execute!(self.stdout, SetForegroundColor(line_num_color))?;
+                    if is_selected {
+                        execute!(self.stdout, SetForegroundColor(current_line_num_color))?;
+                    } else {
+                        execute!(self.stdout, SetForegroundColor(line_num_color))?;
+                    }
+                    terminal_print!(self, "{:>3} ", rel_line);
                 }
-                terminal_print!(self, "{:>3} ", rel_line);
 
-                // Get icon (use config for Nerd Font vs Unicode fallback)
-                let use_nerd_fonts = editor.settings.editor.use_nerd_font_icons;
+                // Icon set follows the resolved UI style (the legacy
+                // use_nerd_font_icons flag still feeds the resolution)
+                let use_nerd_fonts = !minimal;
                 let icon = editor.explorer.get_icon(node, use_nerd_fonts);
 
                 // Get icon color
@@ -2616,10 +2628,49 @@ impl Terminal {
 
                 let git_status = editor.explorer.git_status_for_path(&node.path);
 
+                // Rich mode tints the file name itself with its git status
+                // (search-match highlight still wins)
+                let name_color = if minimal || is_match {
+                    name_color
+                } else {
+                    match git_status {
+                        Some(crate::git::GitFileStatus::Added)
+                        | Some(crate::git::GitFileStatus::Untracked) => theme.git.added,
+                        Some(crate::git::GitFileStatus::Modified) => theme.git.modified,
+                        Some(crate::git::GitFileStatus::Deleted) => theme.git.deleted,
+                        Some(crate::git::GitFileStatus::Conflicted) => theme.diagnostic.error,
+                        None => name_color,
+                    }
+                };
+
+                // Right-aligned diagnostic rollup badge (folders aggregate
+                // their children); dropped when the row is too narrow
+                let mut badge = editor.diag_counts_for_path(&node.path).map(|(e, w)| {
+                    if e > 0 {
+                        (
+                            format!("{}{}", glyphs.diag_error, e),
+                            theme.diagnostic.error,
+                        )
+                    } else {
+                        (
+                            format!("{}{}", glyphs.diag_warn, w),
+                            theme.diagnostic.warning,
+                        )
+                    }
+                });
+                let mut badge_cols = badge
+                    .as_ref()
+                    .map(|(text, _)| text.chars().count() + 1)
+                    .unwrap_or(0);
+                if remaining_width < badge_cols + 8 {
+                    badge = None;
+                    badge_cols = 0;
+                }
+
                 // Calculate available width for name.
-                // Layout: icon + space + git marker column + space + name
+                // Layout: icon + space + git marker column + space + name [+ badge]
                 let prefix_width = 4;
-                let name_max_width = remaining_width.saturating_sub(prefix_width);
+                let name_max_width = remaining_width.saturating_sub(prefix_width + badge_cols);
 
                 // Truncate name if needed
                 let name_chars: Vec<char> = node.name.chars().collect();
@@ -2639,26 +2690,27 @@ impl Terminal {
 
                 // Print git marker with git-sign colors. Keep the marker column
                 // stable so file names do not shift when status appears.
+                // Rich uses a uniform dot (the color carries the status, and
+                // the name is tinted too); minimal keeps the legacy letters.
                 match git_status {
-                    Some(crate::git::GitFileStatus::Added) => {
-                        execute!(self.stdout, SetForegroundColor(theme.git.added))?;
-                        terminal_print!(self, "+ ");
-                    }
-                    Some(crate::git::GitFileStatus::Modified) => {
-                        execute!(self.stdout, SetForegroundColor(theme.git.modified))?;
-                        terminal_print!(self, "x ");
-                    }
-                    Some(crate::git::GitFileStatus::Deleted) => {
-                        execute!(self.stdout, SetForegroundColor(theme.git.deleted))?;
-                        terminal_print!(self, "- ");
-                    }
-                    Some(crate::git::GitFileStatus::Untracked) => {
-                        execute!(self.stdout, SetForegroundColor(theme.git.added))?;
-                        terminal_print!(self, "? ");
-                    }
-                    Some(crate::git::GitFileStatus::Conflicted) => {
-                        execute!(self.stdout, SetForegroundColor(theme.diagnostic.error))?;
-                        terminal_print!(self, "! ");
+                    Some(status) => {
+                        let (marker_color, marker) = match status {
+                            crate::git::GitFileStatus::Added => {
+                                (theme.git.added, if minimal { "+" } else { "●" })
+                            }
+                            crate::git::GitFileStatus::Modified => {
+                                (theme.git.modified, if minimal { "x" } else { "●" })
+                            }
+                            crate::git::GitFileStatus::Deleted => {
+                                (theme.git.deleted, if minimal { "-" } else { "●" })
+                            }
+                            crate::git::GitFileStatus::Untracked => {
+                                (theme.git.added, if minimal { "?" } else { "●" })
+                            }
+                            crate::git::GitFileStatus::Conflicted => (theme.diagnostic.error, "!"),
+                        };
+                        execute!(self.stdout, SetForegroundColor(marker_color))?;
+                        terminal_print!(self, "{} ", marker);
                     }
                     None => {
                         execute!(self.stdout, SetForegroundColor(name_color))?;
@@ -2671,10 +2723,14 @@ impl Terminal {
                 let name_display_len = name_display.chars().count();
                 terminal_print!(self, "{}", name_display);
 
-                // Fill any remaining space with background
-                let used_width = prefix_width + name_display_len;
+                // Fill remaining space, then the right-aligned rollup badge
+                let used_width = prefix_width + name_display_len + badge_cols;
                 if used_width < remaining_width {
                     terminal_print!(self, "{:width$}", "", width = remaining_width - used_width);
+                }
+                if let Some((text, badge_color)) = badge {
+                    execute!(self.stdout, SetForegroundColor(badge_color))?;
+                    terminal_print!(self, "{} ", text);
                 }
             } else {
                 // Empty line - use explorer background
@@ -11073,6 +11129,137 @@ mod tests {
             .render_finder(editor)
             .expect("finder render should succeed");
         output.into_string()
+    }
+
+    fn render_explorer_to_string(editor: &Editor) -> String {
+        crossterm::style::force_color_output(true);
+        let output = SharedOutput::default();
+        let mut terminal = Terminal::new_for_test(Box::new(output.clone()));
+        terminal
+            .render_explorer(editor)
+            .expect("explorer render should succeed");
+        output.into_string()
+    }
+
+    fn explorer_test_editor() -> Editor {
+        let mut editor = Editor::default();
+        editor.set_size(120, 30);
+        editor.explorer.flat_view = vec![
+            crate::explorer::FlatNode {
+                path: PathBuf::from("/proj/src"),
+                name: "src".to_string(),
+                is_dir: true,
+                depth: 1,
+                is_expanded: true,
+            },
+            crate::explorer::FlatNode {
+                path: PathBuf::from("/proj/src/main.rs"),
+                name: "main.rs".to_string(),
+                is_dir: false,
+                depth: 2,
+                is_expanded: false,
+            },
+        ];
+        editor.explorer.selected = 1;
+        // rebuild_git_statuses_from clears everything when no root is set
+        editor.explorer.root = Some(PathBuf::from("/proj"));
+        let mut statuses = std::collections::HashMap::new();
+        statuses.insert(
+            PathBuf::from("/proj/src/main.rs"),
+            crate::git::GitFileStatus::Modified,
+        );
+        editor.explorer.rebuild_git_statuses_from(statuses);
+        editor
+    }
+
+    #[test]
+    fn explorer_rich_renders_bar_dot_marker_and_header_icon() {
+        let editor = explorer_test_editor();
+        let rendered = render_explorer_to_string(&editor);
+        assert!(rendered.contains('▌'), "selected row accent bar");
+        assert!(
+            rendered.contains("● "),
+            "modified file gets a dot marker; output={rendered:?}"
+        );
+        assert!(!rendered.contains("x "), "no legacy letter marker in rich");
+        assert!(
+            rendered.contains('\u{f07b}'),
+            "header shows the folder icon"
+        );
+    }
+
+    #[test]
+    fn explorer_minimal_matches_legacy_chrome() {
+        let mut editor = explorer_test_editor();
+        editor.settings.ui.style = Some(crate::config::UiStyle::Minimal);
+        let rendered = render_explorer_to_string(&editor);
+        assert!(rendered.contains("x "), "legacy modified marker");
+        assert!(!rendered.contains('▌'));
+        assert!(!rendered.contains('\u{f07b}'));
+    }
+
+    #[test]
+    fn explorer_shows_folder_diagnostic_rollup_badge() {
+        let mut editor = explorer_test_editor();
+        editor.set_diagnostics(
+            "file:///proj/src/main.rs".to_string(),
+            vec![crate::lsp::Diagnostic {
+                line: 0,
+                end_line: 0,
+                col_start: 0,
+                col_end: 1,
+                severity: crate::lsp::DiagnosticSeverity::Error,
+                message: "boom".to_string(),
+                source: None,
+                code: None,
+            }],
+        );
+        let rendered = render_explorer_to_string(&editor);
+        assert!(
+            rendered.contains("\u{f057} 1"),
+            "dir and file rows show the error rollup badge; output={rendered:?}"
+        );
+    }
+
+    #[test]
+    fn gutter_diagnostic_sign_follows_ui_style() {
+        let tmp = std::env::temp_dir().join(format!("nevi_gutter_style_{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let path = tmp.join("gutter.rs");
+        std::fs::write(&path, "line one\nline two\n").expect("write file");
+
+        let mut editor = Editor::default();
+        editor.set_size(80, 12);
+        editor.open_file(path.clone()).expect("open file");
+        let uri = crate::lsp::path_to_uri(&path);
+        editor.set_diagnostics(
+            uri,
+            vec![crate::lsp::Diagnostic {
+                line: 0,
+                end_line: 0,
+                col_start: 0,
+                col_end: 4,
+                severity: crate::lsp::DiagnosticSeverity::Error,
+                message: "problem".to_string(),
+                source: None,
+                code: None,
+            }],
+        );
+
+        let rendered = render_editor_to_string(&editor);
+        assert!(
+            rendered.contains('\u{f057}'),
+            "rich gutter uses the NF error glyph; output={rendered:?}"
+        );
+
+        editor.settings.ui.style = Some(crate::config::UiStyle::Minimal);
+        let rendered = render_editor_to_string(&editor);
+        assert!(
+            rendered.contains('●'),
+            "minimal gutter keeps the legacy dot; output={rendered:?}"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     fn measure_render(editor: &Editor) -> Duration {

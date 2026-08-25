@@ -39,6 +39,13 @@ pub struct UiGlyphs {
     pub finder_selection_bar: &'static str,
     /// Prefix inside floating-window border titles.
     pub finder_title_icon: &'static str,
+    /// Buffer gutter diagnostic signs (error/warning/info/hint priority).
+    pub gutter_error: &'static str,
+    pub gutter_warn: &'static str,
+    pub gutter_info: &'static str,
+    pub gutter_hint: &'static str,
+    /// Icon before the project name in the explorer header.
+    pub explorer_header_icon: &'static str,
 }
 
 pub static RICH: UiGlyphs = UiGlyphs {
@@ -60,6 +67,11 @@ pub static RICH: UiGlyphs = UiGlyphs {
     finder_prompt: " \u{f002} ",
     finder_selection_bar: "▌",
     finder_title_icon: "\u{f002} ",
+    gutter_error: "\u{f057}",
+    gutter_warn: "\u{f071}",
+    gutter_info: "\u{f05a}",
+    gutter_hint: "\u{f0eb}",
+    explorer_header_icon: "\u{f07b} ",
 };
 
 pub static MINIMAL: UiGlyphs = UiGlyphs {
@@ -81,6 +93,11 @@ pub static MINIMAL: UiGlyphs = UiGlyphs {
     finder_prompt: " > ",
     finder_selection_bar: "",
     finder_title_icon: "",
+    gutter_error: "●",
+    gutter_warn: "▲",
+    gutter_info: "■",
+    gutter_hint: "○",
+    explorer_header_icon: "",
 };
 
 /// Devicon glyph for the finder's two-char file-type chips. The chip
@@ -220,6 +237,11 @@ mod tests {
             g.finder_prompt,
             g.finder_selection_bar,
             g.finder_title_icon,
+            g.gutter_error,
+            g.gutter_warn,
+            g.gutter_info,
+            g.gutter_hint,
+            g.explorer_header_icon,
         ];
         v.extend(g.lsp_busy_frames);
         v
@@ -238,6 +260,15 @@ mod tests {
             unknown, "\u{f15b}",
             "unknown chips fall back to a generic file glyph"
         );
+    }
+
+    #[test]
+    fn minimal_gutter_signs_match_legacy_chars() {
+        assert_eq!(MINIMAL.gutter_error, "●");
+        assert_eq!(MINIMAL.gutter_warn, "▲");
+        assert_eq!(MINIMAL.gutter_info, "■");
+        assert_eq!(MINIMAL.gutter_hint, "○");
+        assert!(MINIMAL.explorer_header_icon.is_empty());
     }
 
     #[test]
