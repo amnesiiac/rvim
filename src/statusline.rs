@@ -52,8 +52,42 @@ pub struct StatusContext<'a> {
     /// 1-based for display.
     pub line: usize,
     pub col: usize,
-    /// 0..=100 scroll position.
-    pub percent: usize,
+    /// Vim-style ruler position (All/Top/Bot/percent through the file).
+    pub position: ScrollPosition,
+}
+
+/// Vim ruler semantics: All when the whole file fits, Top/Bot at the
+/// edges, percent-scrolled otherwise.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScrollPosition {
+    All,
+    Top,
+    Bot,
+    Percent(usize),
+}
+
+impl ScrollPosition {
+    /// Compute from viewport state, mirroring Vim's ruler.
+    pub fn from_viewport(offset: usize, visible_rows: usize, total_lines: usize) -> Self {
+        if total_lines <= visible_rows {
+            ScrollPosition::All
+        } else if offset == 0 {
+            ScrollPosition::Top
+        } else if offset + visible_rows >= total_lines {
+            ScrollPosition::Bot
+        } else {
+            ScrollPosition::Percent((offset * 100) / (total_lines - visible_rows))
+        }
+    }
+
+    fn label(self) -> String {
+        match self {
+            ScrollPosition::All => "All".to_string(),
+            ScrollPosition::Top => "Top".to_string(),
+            ScrollPosition::Bot => "Bot".to_string(),
+            ScrollPosition::Percent(p) => format!("{}%", p),
+        }
+    }
 }
 
 fn mode_color(mode: Mode, theme: &Theme) -> Color {
@@ -62,6 +96,8 @@ fn mode_color(mode: Mode, theme: &Theme) -> Color {
         Mode::Insert => theme.ui.statusline_mode_insert,
         Mode::Visual | Mode::VisualLine | Mode::VisualBlock => theme.ui.statusline_mode_visual,
         Mode::Replace => theme.ui.statusline_mode_replace,
+        // Search reads as its own mode, like INSERT-green does
+        Mode::Search => theme.ui.statusline_mode_command,
         _ => theme.ui.statusline_mode_normal,
     }
 }
@@ -218,7 +254,7 @@ fn build_rich(ctx: &StatusContext, glyphs: &UiGlyphs, theme: &Theme) -> StatusLi
     right.push(seg(format!(" {}{} ", ctx.lang, lsp), base_fg, section_bg));
     right.push(seg(glyphs.sep_right.to_string(), mode_bg, section_bg));
     right.push(seg_bold(
-        format!(" {}:{}  {}% ", ctx.line, ctx.col, ctx.percent),
+        format!(" {}:{}  {} ", ctx.line, ctx.col, ctx.position.label()),
         base_bg,
         mode_bg,
     ));
@@ -324,7 +360,7 @@ mod tests {
             lsp_spinner: "",
             line: 128,
             col: 14,
-            percent: 93,
+            position: ScrollPosition::Percent(93),
         }
     }
 
@@ -393,6 +429,39 @@ mod tests {
         let all = all_text(&content);
         assert!(all.contains("[3d]"));
         assert!(all.contains("@q"));
+    }
+
+    #[test]
+    fn search_mode_gets_command_color_badge() {
+        let theme = theme();
+        let mut ctx = ctx_base();
+        ctx.mode = Mode::Search;
+        let content = build_status_segments(&ctx, &RICH, &theme, false);
+        assert!(content.left[0].text.contains("SEARCH"));
+        assert_eq!(
+            content.left[0].bg, theme.ui.statusline_mode_command,
+            "SEARCH badge uses the command color, not normal-blue"
+        );
+    }
+
+    #[test]
+    fn scroll_position_renders_vim_style_ruler_tokens() {
+        for (pos, expect) in [
+            (ScrollPosition::All, "All"),
+            (ScrollPosition::Top, "Top"),
+            (ScrollPosition::Bot, "Bot"),
+            (ScrollPosition::Percent(52), "52%"),
+        ] {
+            let mut ctx = ctx_base();
+            ctx.position = pos;
+            let content = build_status_segments(&ctx, &RICH, &theme(), false);
+            let last = content.right.last().expect("position segment");
+            assert!(
+                last.text.contains(expect),
+                "expected {expect:?} in {:?}",
+                last.text
+            );
+        }
     }
 
     #[test]

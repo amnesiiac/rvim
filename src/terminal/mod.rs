@@ -3203,7 +3203,11 @@ impl Terminal {
             lsp_spinner: editor.lsp_spinner_frame(),
             line: editor.cursor.line + 1,
             col: editor.cursor.col + 1,
-            percent: ((editor.cursor.line + 1) * 100 / total_lines).min(100),
+            position: crate::statusline::ScrollPosition::from_viewport(
+                editor.viewport_offset,
+                editor.text_rows(),
+                total_lines,
+            ),
         };
         let content = crate::statusline::build_status_segments(&ctx, glyphs, theme, minimal);
 
