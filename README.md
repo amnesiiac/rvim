@@ -275,6 +275,9 @@ scroll_off = 8
 [theme]
 colorscheme = "onedark"
 
+[ui]
+style = "rich"
+
 [terminal]
 popup_width_ratio = 0.9
 popup_height_ratio = 0.9
@@ -294,6 +297,22 @@ defaults are added.
 
 See the generated config file at `~/.config/nevi/config.toml` for all available
 options with documentation.
+
+### UI style
+
+The default UI is "rich": Nerd Font icons, a segmented powerline statusline,
+and glyph-based signs. It expects a [Nerd Font](https://www.nerdfonts.com) in
+your terminal — if you see boxes instead of icons, either install one or set:
+
+```toml
+[ui]
+style = "minimal"
+```
+
+for a plain-ASCII UI with the same layout. If you already had
+`use_nerd_font_icons = false` under `[editor]`, Nevi keeps respecting it and
+defaults to the ASCII UI automatically. `:checkhealth` reports the active UI
+mode and includes a glyph probe.
 
 ## Custom Themes
 

@@ -26,6 +26,7 @@ pub struct Settings {
     pub finder: FinderSettings,
     pub lsp: LspSettings,
     pub copilot: CopilotSettings,
+    pub ui: UiSettings,
 }
 
 impl Default for Settings {
@@ -39,7 +40,45 @@ impl Default for Settings {
             finder: FinderSettings::default(),
             lsp: LspSettings::default(),
             copilot: CopilotSettings::default(),
+            ui: UiSettings::default(),
         }
+    }
+}
+
+impl Settings {
+    /// Resolve the UI chrome style. Unset `[ui] style` falls back to the
+    /// legacy `editor.use_nerd_font_icons` flag so users who already opted
+    /// out of Nerd Fonts keep a glyph-free UI without editing their config.
+    pub fn resolved_ui_style(&self) -> UiStyle {
+        self.ui.style.unwrap_or(if self.editor.use_nerd_font_icons {
+            UiStyle::Rich
+        } else {
+            UiStyle::Minimal
+        })
+    }
+}
+
+/// UI chrome settings
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct UiSettings {
+    /// "rich" (Nerd Font icons, powerline statusline segments) or "minimal"
+    /// (plain ASCII, flat statusline). Default (unset) = rich.
+    pub style: Option<UiStyle>,
+}
+
+/// UI chrome style — an enum rather than a bool so future styles can be
+/// added without a second flag.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum UiStyle {
+    Rich,
+    Minimal,
+}
+
+impl UiStyle {
+    pub fn is_minimal(self) -> bool {
+        self == UiStyle::Minimal
     }
 }
 
@@ -1002,6 +1041,13 @@ fn default_config_template() -> &'static str {
 # colorscheme = "onedark"    # Color scheme name
 
 # ============================================================================
+# UI CHROME
+# ============================================================================
+# [ui]
+# style = "rich"             # "rich" = icons + powerline statusline (default);
+#                            # "minimal" = plain ASCII UI (no Nerd Font required)
+
+# ============================================================================
 # FLOATING TERMINAL
 # ============================================================================
 # [terminal]
@@ -1716,6 +1762,32 @@ fn merge_explorer_mappings(user_mappings: &[ExplorerModeMapping]) -> Vec<Explore
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ui_style_resolution_combinations() {
+        let mut s = Settings::default();
+        // nothing set → rich
+        assert_eq!(s.resolved_ui_style(), UiStyle::Rich);
+        // legacy nerd-font opt-out implies minimal
+        s.editor.use_nerd_font_icons = false;
+        assert_eq!(s.resolved_ui_style(), UiStyle::Minimal);
+        // explicit [ui] style wins over legacy flag
+        s.ui.style = Some(UiStyle::Rich);
+        assert_eq!(s.resolved_ui_style(), UiStyle::Rich);
+        s.ui.style = Some(UiStyle::Minimal);
+        s.editor.use_nerd_font_icons = true;
+        assert_eq!(s.resolved_ui_style(), UiStyle::Minimal);
+    }
+
+    #[test]
+    fn ui_section_parses_and_is_optional() {
+        let s: Settings = toml::from_str("[ui]\nstyle = \"minimal\"\n").expect("parse [ui]");
+        assert_eq!(s.ui.style, Some(UiStyle::Minimal));
+        let s: Settings = toml::from_str("[ui]\nstyle = \"rich\"\n").expect("parse [ui]");
+        assert_eq!(s.ui.style, Some(UiStyle::Rich));
+        let s: Settings = toml::from_str("").expect("parse empty config");
+        assert_eq!(s.ui.style, None);
+    }
 
     #[test]
     fn lsp_server_partial_config_keeps_default_command_and_args() {

@@ -99,6 +99,22 @@ impl GitDiff {
     pub fn status_for_line(&self, line: usize) -> Option<GitLineStatus> {
         self.hunks.iter().find(|h| h.line == line).map(|h| h.status)
     }
+
+    /// (added, modified) line counts for the statusline. Deleted hunks are
+    /// excluded on purpose — the statusline shows "+n ~n" only.
+    pub fn totals(&self) -> (usize, usize) {
+        let added = self
+            .hunks
+            .iter()
+            .filter(|h| h.status == GitLineStatus::Added)
+            .count();
+        let modified = self
+            .hunks
+            .iter()
+            .filter(|h| h.status == GitLineStatus::Modified)
+            .count();
+        (added, modified)
+    }
 }
 
 /// Wrapper around git2::Repository for git operations
@@ -118,6 +134,11 @@ impl GitRepo {
     /// Get the working directory of the repository
     pub fn workdir(&self) -> Option<&Path> {
         self.repo.workdir()
+    }
+
+    /// Current branch short name (e.g. "master"), or None when detached/unborn.
+    pub fn branch_name(&self) -> Option<String> {
+        self.repo.head().ok()?.shorthand().map(str::to_string)
     }
 
     /// Get the content of a file at HEAD
@@ -1096,6 +1117,14 @@ mod tests {
                 .iter()
                 .any(|h| h.status == GitLineStatus::Deleted)
         );
+    }
+
+    #[test]
+    fn diff_totals_count_added_and_modified_lines() {
+        let diff = compute_diff("a\nb\n", "a\nX\nc\n");
+        let (added, modified) = diff.totals();
+        assert_eq!(modified, 1); // b → X
+        assert_eq!(added, 1); // c
     }
 
     #[test]
