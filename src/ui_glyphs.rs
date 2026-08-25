@@ -27,6 +27,18 @@ pub struct UiGlyphs {
     /// LSP busy indicator frames; advanced per LSP notification
     /// (event-driven — never on a timer).
     pub lsp_busy_frames: &'static [&'static str],
+    /// Floating-window corners (rounded in rich, square in minimal).
+    pub corner_tl: &'static str,
+    pub corner_tr: &'static str,
+    pub corner_bl: &'static str,
+    pub corner_br: &'static str,
+    /// Finder input prompt, rendered after the "[I]"/"[N]" mode indicator.
+    /// Both variants occupy 3 columns so the prompt width math is shared.
+    pub finder_prompt: &'static str,
+    /// Selected-row accent bar; empty = no reserved bar column (legacy look).
+    pub finder_selection_bar: &'static str,
+    /// Prefix inside floating-window border titles.
+    pub finder_title_icon: &'static str,
 }
 
 pub static RICH: UiGlyphs = UiGlyphs {
@@ -41,6 +53,13 @@ pub static RICH: UiGlyphs = UiGlyphs {
     diag_warn: "\u{f071} ",
     lsp_ok: "✓",
     lsp_busy_frames: &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧"],
+    corner_tl: "╭",
+    corner_tr: "╮",
+    corner_bl: "╰",
+    corner_br: "╯",
+    finder_prompt: " \u{f002} ",
+    finder_selection_bar: "▌",
+    finder_title_icon: "\u{f002} ",
 };
 
 pub static MINIMAL: UiGlyphs = UiGlyphs {
@@ -55,7 +74,122 @@ pub static MINIMAL: UiGlyphs = UiGlyphs {
     diag_warn: "W:",
     lsp_ok: "✓",
     lsp_busy_frames: &["~"],
+    corner_tl: "┌",
+    corner_tr: "┐",
+    corner_bl: "└",
+    corner_br: "┘",
+    finder_prompt: " > ",
+    finder_selection_bar: "",
+    finder_title_icon: "",
 };
+
+/// Devicon glyph for the finder's two-char file-type chips. The chip
+/// classification (FuzzyFinder::get_file_icon) stays the single source of
+/// file-type truth; rich mode only swaps its visual representation.
+pub fn devicon_for_chip(chip: &str) -> &'static str {
+    match chip {
+        "TR" => "\u{f120}",               // terminal
+        "RS" => "\u{e7a8}",               // rust
+        "TS" => "\u{e628}",               // typescript
+        "TX" => "\u{e7ba}",               // tsx/react
+        "JS" => "\u{e74e}",               // javascript
+        "JX" => "\u{e7ba}",               // jsx/react
+        "PY" => "\u{e73c}",               // python
+        "GO" => "\u{e626}",               // go
+        "RB" => "\u{e739}",               // ruby
+        "HT" => "\u{e736}",               // html
+        "CS" | "SC" => "\u{e749}",        // css/scss
+        "MD" => "\u{e73e}",               // markdown
+        "YM" | "TM" | "CF" => "\u{e615}", // yaml/toml/config
+        "GT" => "\u{e702}",               // git
+        "EN" => "\u{f462}",               // env
+        "SH" | "ZS" | "FS" => "\u{e795}", // shell
+        _ => "\u{f15b}",                  // generic file
+    }
+}
+
+/// File-type tint for chips and devicons — lifted unchanged from the
+/// former inline match in render_finder so both representations share it.
+pub fn file_chip_color(chip: &str) -> crossterm::style::Color {
+    use crossterm::style::Color;
+    match chip {
+        "TR" => Color::Rgb {
+            r: 90,
+            g: 210,
+            b: 120,
+        }, // Terminal - green
+        "RS" => Color::Rgb {
+            r: 255,
+            g: 100,
+            b: 50,
+        }, // Rust - orange
+        "TS" | "TX" => Color::Rgb {
+            r: 50,
+            g: 150,
+            b: 255,
+        }, // TypeScript - blue
+        "JS" | "JX" => Color::Rgb {
+            r: 255,
+            g: 220,
+            b: 50,
+        }, // JavaScript - yellow
+        "PY" => Color::Rgb {
+            r: 80,
+            g: 180,
+            b: 80,
+        }, // Python - green
+        "GO" => Color::Rgb {
+            r: 100,
+            g: 200,
+            b: 220,
+        }, // Go - cyan
+        "RB" => Color::Rgb {
+            r: 220,
+            g: 50,
+            b: 50,
+        }, // Ruby - red
+        "HT" => Color::Rgb {
+            r: 230,
+            g: 100,
+            b: 50,
+        }, // HTML - orange
+        "CS" | "SC" => Color::Rgb {
+            r: 100,
+            g: 150,
+            b: 255,
+        }, // CSS - blue
+        "MD" => Color::Rgb {
+            r: 150,
+            g: 150,
+            b: 150,
+        }, // Markdown - gray
+        "YM" | "TM" | "CF" => Color::Rgb {
+            r: 180,
+            g: 140,
+            b: 100,
+        }, // Config - tan
+        "GT" => Color::Rgb {
+            r: 240,
+            g: 80,
+            b: 50,
+        }, // Git - red-orange
+        "EN" => Color::Rgb {
+            r: 255,
+            g: 200,
+            b: 50,
+        }, // Env - yellow
+        "SH" | "ZS" | "FS" => Color::Rgb {
+            r: 100,
+            g: 200,
+            b: 100,
+        }, // Shell - green
+        _ => Color::Rgb {
+            r: 120,
+            g: 120,
+            b: 120,
+        }, // Default - gray
+    }
+}
 
 impl UiGlyphs {
     pub fn for_minimal(minimal: bool) -> &'static UiGlyphs {
@@ -79,9 +213,38 @@ mod tests {
             g.diag_error,
             g.diag_warn,
             g.lsp_ok,
+            g.corner_tl,
+            g.corner_tr,
+            g.corner_bl,
+            g.corner_br,
+            g.finder_prompt,
+            g.finder_selection_bar,
+            g.finder_title_icon,
         ];
         v.extend(g.lsp_busy_frames);
         v
+    }
+
+    #[test]
+    fn devicon_for_chip_maps_known_types() {
+        let rust = devicon_for_chip("RS");
+        let ts = devicon_for_chip("TS");
+        let md = devicon_for_chip("MD");
+        let unknown = devicon_for_chip("??");
+        assert!(!rust.is_empty() && !ts.is_empty() && !md.is_empty());
+        assert_ne!(rust, ts);
+        assert_ne!(ts, md);
+        assert_eq!(
+            unknown, "\u{f15b}",
+            "unknown chips fall back to a generic file glyph"
+        );
+    }
+
+    #[test]
+    fn minimal_finder_prompt_matches_legacy() {
+        assert_eq!(MINIMAL.finder_prompt, " > ");
+        assert_eq!(MINIMAL.corner_tl, "┌");
+        assert!(MINIMAL.finder_selection_bar.is_empty());
     }
 
     #[test]
