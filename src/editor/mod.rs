@@ -1036,6 +1036,9 @@ pub struct Editor {
     lsp_spinner_idx: usize,
     /// LSP diagnostics per file URI
     diagnostics: HashMap<String, Vec<Diagnostic>>,
+    /// (errors, warnings) rolled up per file/directory path for explorer
+    /// badges; rebuilt on diagnostics events, never during render
+    diag_rollup: HashMap<std::path::PathBuf, (usize, usize)>,
     /// Autocomplete state
     pub completion: CompletionState,
     /// Pending LSP action to execute (handled by main loop)
@@ -1578,6 +1581,7 @@ impl Editor {
             lsp_busy: false,
             lsp_spinner_idx: 0,
             diagnostics: HashMap::new(),
+            diag_rollup: HashMap::new(),
             completion: CompletionState::default(),
             pending_lsp_action: None,
             jump_list: JumpList::default(),
@@ -2422,6 +2426,43 @@ impl Editor {
         }
 
         self.diagnostics.insert(uri, diags);
+        self.rebuild_diag_rollup();
+    }
+
+    /// Rebuild the per-path diagnostic rollup used by the explorer's folder
+    /// badges. Event-driven (runs only when diagnostics arrive) so renders
+    /// never aggregate; bounded by files-with-diagnostics × path depth.
+    fn rebuild_diag_rollup(&mut self) {
+        self.diag_rollup.clear();
+        for (uri, diags) in &self.diagnostics {
+            let mut errors = 0usize;
+            let mut warnings = 0usize;
+            for d in diags {
+                match d.severity {
+                    crate::lsp::DiagnosticSeverity::Error => errors += 1,
+                    crate::lsp::DiagnosticSeverity::Warning => warnings += 1,
+                    _ => {}
+                }
+            }
+            if errors == 0 && warnings == 0 {
+                continue;
+            }
+            let Some(path) = crate::lsp::uri_to_path(uri) else {
+                continue;
+            };
+            let mut current = Some(path.as_path());
+            while let Some(p) = current {
+                let entry = self.diag_rollup.entry(p.to_path_buf()).or_insert((0, 0));
+                entry.0 += errors;
+                entry.1 += warnings;
+                current = p.parent();
+            }
+        }
+    }
+
+    /// (errors, warnings) rolled up for a file or directory, if any.
+    pub fn diag_counts_for_path(&self, path: &std::path::Path) -> Option<(usize, usize)> {
+        self.diag_rollup.get(path).copied()
     }
 
     fn diagnostic_render_rows_for_uri(
@@ -13258,6 +13299,54 @@ mod tests {
         let _ = editor.apply_selected_code_action();
 
         assert_eq!(editor.buffer().content(), "abc\n");
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn diagnostic_rollup_aggregates_counts_into_ancestor_dirs() {
+        let tmp = unique_temp_dir("nevi_diag_rollup");
+        let sub = tmp.join("src");
+        std::fs::create_dir_all(&sub).expect("create dirs");
+        let path = sub.join("lib.rs");
+        std::fs::write(&path, "one\ntwo\n").expect("write file");
+
+        let mut editor = Editor::default();
+        editor.open_file(path.clone()).expect("open file");
+        let uri = crate::lsp::path_to_uri(&path);
+        editor.set_diagnostics(
+            uri.clone(),
+            vec![
+                Diagnostic {
+                    line: 0,
+                    end_line: 0,
+                    col_start: 0,
+                    col_end: 1,
+                    severity: DiagnosticSeverity::Error,
+                    message: "e".to_string(),
+                    source: None,
+                    code: None,
+                },
+                Diagnostic {
+                    line: 1,
+                    end_line: 1,
+                    col_start: 0,
+                    col_end: 1,
+                    severity: DiagnosticSeverity::Warning,
+                    message: "w".to_string(),
+                    source: None,
+                    code: None,
+                },
+            ],
+        );
+
+        assert_eq!(editor.diag_counts_for_path(&path), Some((1, 1)));
+        assert_eq!(editor.diag_counts_for_path(&sub), Some((1, 1)));
+        assert_eq!(editor.diag_counts_for_path(&tmp), Some((1, 1)));
+
+        editor.set_diagnostics(uri, vec![]);
+        assert_eq!(editor.diag_counts_for_path(&path), None);
+        assert_eq!(editor.diag_counts_for_path(&sub), None);
 
         let _ = std::fs::remove_dir_all(&tmp);
     }
