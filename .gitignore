@@ -1,2 +1,4 @@
 /target
 .nvimlog
+.DS_Store
+*.log
