@@ -1927,6 +1927,73 @@ impl Editor {
         Ok(message)
     }
 
+    /// Gather persistable session state (macros, registers, global marks,
+    /// search history) for the shada-lite file. Unencodable macros and
+    /// clipboard-backed registers are session-only by design.
+    pub fn export_shada(&self) -> crate::shada::ShadaState {
+        let mut state = crate::shada::ShadaState {
+            version: crate::shada::FORMAT_VERSION,
+            ..Default::default()
+        };
+
+        for (register, keys) in self.macros.recorded() {
+            if let Ok(notation) = crate::input::key_notation::encode_key_sequence(keys) {
+                state.macros.insert(register, notation);
+            }
+        }
+
+        for register in 'a'..='z' {
+            if let Some(content) = self.registers.get(Some(register)) {
+                state.registers.insert(register, content.to_shada_entry());
+            }
+        }
+        state.unnamed_register = self
+            .registers
+            .get(None)
+            .map(RegisterContent::to_shada_entry);
+
+        for (name, mark) in self.marks.get_global_marks() {
+            if let Some(path) = &mark.path {
+                state.global_marks.insert(
+                    name,
+                    crate::shada::MarkEntry {
+                        path: path.clone(),
+                        line: mark.line,
+                        col: mark.col,
+                    },
+                );
+            }
+        }
+
+        state.search_history = self.search.history.clone();
+        state
+    }
+
+    /// Restore a previous session's shada state. Entries that no longer parse
+    /// (hand-edited macros) are skipped; everything else loads independently.
+    pub fn apply_shada(&mut self, state: crate::shada::ShadaState) {
+        for (register, notation) in state.macros {
+            if let Ok(keys) = crate::input::key_notation::parse_key_sequence(&notation) {
+                self.macros.set_macro(register, keys);
+            }
+        }
+
+        for (register, entry) in state.registers {
+            self.registers
+                .set(Some(register), RegisterContent::from_shada_entry(entry));
+        }
+        if let Some(entry) = state.unnamed_register {
+            self.registers
+                .set(None, RegisterContent::from_shada_entry(entry));
+        }
+
+        for (name, mark) in state.global_marks {
+            self.marks.set_global(name, mark.path, mark.line, mark.col);
+        }
+
+        self.search.history = state.search_history;
+    }
+
     /// Build a project-wide replace preview and open it as a read-only buffer.
     pub fn preview_project_replace(
         &mut self,
@@ -11404,6 +11471,7 @@ mod tests {
     mod open_line;
     mod replace;
     mod screen_position;
+    mod shada;
 
     use super::{Editor, JumpList, Mode, SearchDirection, SplitLayout};
     use crate::input::Motion;
