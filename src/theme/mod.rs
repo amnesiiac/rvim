@@ -94,6 +94,9 @@ pub struct UiColors {
     pub statusline_mode_visual: Color,
     pub statusline_mode_command: Color,
     pub statusline_mode_replace: Color,
+    /// Background for the statusline's mid segments (git/lang blocks in rich
+    /// mode). Optional in theme TOML; falls back to cursor_line.
+    pub statusline_section_bg: Color,
 
     // Popups/Floating windows
     pub popup_bg: Color,
@@ -264,6 +267,12 @@ impl Theme {
                 statusline_mode_visual: purple,
                 statusline_mode_command: yellow,
                 statusline_mode_replace: red,
+                // matches cursor_line above (the documented fallback)
+                statusline_section_bg: Color::Rgb {
+                    r: 44,
+                    g: 49,
+                    b: 60,
+                },
 
                 popup_bg: bg_dark,
                 popup_border: Color::Rgb {

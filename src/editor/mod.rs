@@ -1030,8 +1030,15 @@ pub struct Editor {
     pub finder: FuzzyFinder,
     /// LSP status message (persistent, shown in status bar)
     pub lsp_status: Option<String>,
+    /// Whether the LSP looks busy (indexing/loading), from the status text
+    pub lsp_busy: bool,
+    /// Spinner position; advances per LSP notification, never on a timer
+    lsp_spinner_idx: usize,
     /// LSP diagnostics per file URI
     diagnostics: HashMap<String, Vec<Diagnostic>>,
+    /// (errors, warnings) rolled up per file/directory path for explorer
+    /// badges; rebuilt on diagnostics events, never during render
+    diag_rollup: HashMap<std::path::PathBuf, (usize, usize)>,
     /// Autocomplete state
     pub completion: CompletionState,
     /// Pending LSP action to execute (handled by main loop)
@@ -1080,6 +1087,9 @@ pub struct Editor {
     git_diffs: HashMap<String, crate::git::GitDiff>,
     /// Cached git repository (if project is in git)
     git_repo: Option<crate::git::GitRepo>,
+    /// Cached branch short name; refreshed with git state, read by the
+    /// statusline (render must never call into git2 directly)
+    pub git_branch: Option<String>,
     /// Theme manager for colors and themes
     pub theme_manager: ThemeManager,
     /// Theme picker state (Some if picker is open)
@@ -1568,7 +1578,10 @@ impl Editor {
             pending_external_command: None,
             finder,
             lsp_status: None,
+            lsp_busy: false,
+            lsp_spinner_idx: 0,
             diagnostics: HashMap::new(),
+            diag_rollup: HashMap::new(),
             completion: CompletionState::default(),
             pending_lsp_action: None,
             jump_list: JumpList::default(),
@@ -1593,6 +1606,7 @@ impl Editor {
             copilot_ghost: None,
             git_diffs: HashMap::new(),
             git_repo: None,
+            git_branch: None,
             theme_manager,
             theme_picker: None,
             markdown_preview: None,
@@ -1836,6 +1850,7 @@ impl Editor {
             &self.settings,
             &self.languages_config,
             Some(self.current_large_file_health()),
+            self.lsp_status.clone(),
         );
         self.open_virtual_read_only_buffer("[health]", &report, Some("health.md"));
     }
@@ -2427,10 +2442,33 @@ impl Editor {
         }
     }
 
+    /// Glyph table for the resolved UI chrome style. A method rather than a
+    /// stored field: resolution is two bool reads, and duplicated state on
+    /// Editor has a history of desyncing (see the pane-mirroring invariant).
+    pub fn ui_glyphs(&self) -> &'static crate::ui_glyphs::UiGlyphs {
+        crate::ui_glyphs::UiGlyphs::for_minimal(self.settings.resolved_ui_style().is_minimal())
+    }
+
     /// Set the LSP status (persistent, shown in status bar)
     pub fn set_lsp_status<S: Into<String>>(&mut self, msg: S) {
-        self.lsp_status = Some(msg.into());
+        let msg = msg.into();
+        // Busy heuristic over the free-form status strings main.rs emits.
+        // The spinner advances only here — event-driven, never on a timer.
+        let lower = msg.to_lowercase();
+        self.lsp_busy = ["indexing", "loading", "starting", "%"]
+            .iter()
+            .any(|needle| lower.contains(needle));
+        if self.lsp_busy {
+            self.lsp_spinner_idx = self.lsp_spinner_idx.wrapping_add(1);
+        }
+        self.lsp_status = Some(msg);
         self.render_damage.mark_statusline();
+    }
+
+    /// Current spinner frame for the statusline's LSP busy indicator
+    pub fn lsp_spinner_frame(&self) -> &'static str {
+        let frames = self.ui_glyphs().lsp_busy_frames;
+        frames[self.lsp_spinner_idx % frames.len()]
     }
 
     /// Update diagnostics for a file URI
@@ -2455,6 +2493,43 @@ impl Editor {
         }
 
         self.diagnostics.insert(uri, diags);
+        self.rebuild_diag_rollup();
+    }
+
+    /// Rebuild the per-path diagnostic rollup used by the explorer's folder
+    /// badges. Event-driven (runs only when diagnostics arrive) so renders
+    /// never aggregate; bounded by files-with-diagnostics × path depth.
+    fn rebuild_diag_rollup(&mut self) {
+        self.diag_rollup.clear();
+        for (uri, diags) in &self.diagnostics {
+            let mut errors = 0usize;
+            let mut warnings = 0usize;
+            for d in diags {
+                match d.severity {
+                    crate::lsp::DiagnosticSeverity::Error => errors += 1,
+                    crate::lsp::DiagnosticSeverity::Warning => warnings += 1,
+                    _ => {}
+                }
+            }
+            if errors == 0 && warnings == 0 {
+                continue;
+            }
+            let Some(path) = crate::lsp::uri_to_path(uri) else {
+                continue;
+            };
+            let mut current = Some(path.as_path());
+            while let Some(p) = current {
+                let entry = self.diag_rollup.entry(p.to_path_buf()).or_insert((0, 0));
+                entry.0 += errors;
+                entry.1 += warnings;
+                current = p.parent();
+            }
+        }
+    }
+
+    /// (errors, warnings) rolled up for a file or directory, if any.
+    pub fn diag_counts_for_path(&self, path: &std::path::Path) -> Option<(usize, usize)> {
+        self.diag_rollup.get(path).copied()
     }
 
     fn diagnostic_render_rows_for_uri(
@@ -2744,6 +2819,21 @@ impl Editor {
         }
     }
 
+    /// (errors, warnings) counts for the current buffer — statusline data.
+    /// Information/Hint severities are excluded on purpose.
+    pub fn current_diagnostic_counts(&self) -> (usize, usize) {
+        let mut errors = 0;
+        let mut warnings = 0;
+        for d in self.current_diagnostics() {
+            match d.severity {
+                crate::lsp::DiagnosticSeverity::Error => errors += 1,
+                crate::lsp::DiagnosticSeverity::Warning => warnings += 1,
+                _ => {}
+            }
+        }
+        (errors, warnings)
+    }
+
     /// Get diagnostics for the current buffer using a pre-computed URI (avoids repeated allocations)
     pub fn current_diagnostics_cached(&self, uri: &str) -> &[Diagnostic] {
         self.diagnostics
@@ -2864,6 +2954,7 @@ impl Editor {
         if let Some(root) = &self.project_root {
             self.git_repo = crate::git::GitRepo::open(root);
         }
+        self.git_branch = self.git_repo.as_ref().and_then(|r| r.branch_name());
         self.refresh_explorer_git_statuses();
     }
 
@@ -2877,6 +2968,13 @@ impl Editor {
         let path = self.buffer().path.as_ref()?.to_string_lossy().to_string();
         let diff = self.git_diffs.get(&path)?;
         diff.status_for_line(line)
+    }
+
+    /// (added, modified) line counts for the current buffer's cached git
+    /// diff — statusline data, derived from the same diff the gutter uses
+    pub fn current_git_diff_totals(&self) -> Option<(usize, usize)> {
+        let path = self.buffer().path.as_ref()?.to_string_lossy().to_string();
+        self.git_diffs.get(&path).map(|d| d.totals())
     }
 
     /// Get git status for a specific line given a file path
@@ -2932,6 +3030,7 @@ impl Editor {
     /// Refresh all git-derived editor state.
     pub fn refresh_git_state(&mut self) {
         self.update_all_git_diffs();
+        self.git_branch = self.git_repo.as_ref().and_then(|r| r.branch_name());
         self.refresh_explorer_git_statuses();
     }
 
@@ -13268,6 +13367,111 @@ mod tests {
         let _ = editor.apply_selected_code_action();
 
         assert_eq!(editor.buffer().content(), "abc\n");
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn diagnostic_rollup_aggregates_counts_into_ancestor_dirs() {
+        let tmp = unique_temp_dir("nevi_diag_rollup");
+        let sub = tmp.join("src");
+        std::fs::create_dir_all(&sub).expect("create dirs");
+        let path = sub.join("lib.rs");
+        std::fs::write(&path, "one\ntwo\n").expect("write file");
+
+        let mut editor = Editor::default();
+        editor.open_file(path.clone()).expect("open file");
+        let uri = crate::lsp::path_to_uri(&path);
+        editor.set_diagnostics(
+            uri.clone(),
+            vec![
+                Diagnostic {
+                    line: 0,
+                    end_line: 0,
+                    col_start: 0,
+                    col_end: 1,
+                    severity: DiagnosticSeverity::Error,
+                    message: "e".to_string(),
+                    source: None,
+                    code: None,
+                },
+                Diagnostic {
+                    line: 1,
+                    end_line: 1,
+                    col_start: 0,
+                    col_end: 1,
+                    severity: DiagnosticSeverity::Warning,
+                    message: "w".to_string(),
+                    source: None,
+                    code: None,
+                },
+            ],
+        );
+
+        assert_eq!(editor.diag_counts_for_path(&path), Some((1, 1)));
+        assert_eq!(editor.diag_counts_for_path(&sub), Some((1, 1)));
+        assert_eq!(editor.diag_counts_for_path(&tmp), Some((1, 1)));
+
+        editor.set_diagnostics(uri, vec![]);
+        assert_eq!(editor.diag_counts_for_path(&path), None);
+        assert_eq!(editor.diag_counts_for_path(&sub), None);
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn lsp_status_drives_busy_flag_and_spinner_frame() {
+        let mut editor = Editor::default();
+        editor.set_lsp_status("LSP: indexing 40%");
+        assert!(editor.lsp_busy);
+        let f1 = editor.lsp_spinner_frame();
+        editor.set_lsp_status("LSP: indexing 60%");
+        let f2 = editor.lsp_spinner_frame();
+        assert_ne!(
+            f1, f2,
+            "spinner advances per notification (event-driven, no timer)"
+        );
+        editor.set_lsp_status("rust-analyzer: idle");
+        assert!(!editor.lsp_busy);
+    }
+
+    #[test]
+    fn current_diagnostic_counts_split_by_severity() {
+        let tmp = unique_temp_dir("nevi_diag_counts");
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let path = tmp.join("counts.rs");
+        std::fs::write(&path, "one\ntwo\n").expect("write file");
+
+        let mut editor = Editor::default();
+        editor.open_file(path.clone()).expect("open file");
+        let uri = crate::lsp::path_to_uri(&path);
+        editor.set_diagnostics(
+            uri,
+            vec![
+                Diagnostic {
+                    line: 0,
+                    end_line: 0,
+                    col_start: 0,
+                    col_end: 1,
+                    severity: DiagnosticSeverity::Error,
+                    message: "e".to_string(),
+                    source: None,
+                    code: None,
+                },
+                Diagnostic {
+                    line: 1,
+                    end_line: 1,
+                    col_start: 0,
+                    col_end: 1,
+                    severity: DiagnosticSeverity::Warning,
+                    message: "w".to_string(),
+                    source: None,
+                    code: None,
+                },
+            ],
+        );
+
+        assert_eq!(editor.current_diagnostic_counts(), (1, 1));
 
         let _ = std::fs::remove_dir_all(&tmp);
     }

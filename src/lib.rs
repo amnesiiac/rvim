@@ -28,10 +28,12 @@ pub mod perf;
 pub mod project_replace;
 pub mod render_damage;
 pub mod shada;
+pub mod statusline;
 pub mod syntax;
 pub mod terminal;
 pub mod theme;
 pub mod tool_installer;
+pub mod ui_glyphs;
 #[cfg(test)]
 mod vim_oracle;
 

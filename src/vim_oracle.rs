@@ -1,7 +1,6 @@
 use crate::editor::{Editor, Mode};
 use crate::input::key_notation::parse_key_sequence;
 use crate::terminal::handle_key;
-use crossterm::event::KeyEvent;
 use std::path::PathBuf;
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -703,6 +702,43 @@ const MOTION_CASES: &[OracleCase] = &[
         initial_text: "alpha\nbeta\n",
         keys: "99go",
     },
+    // Display-line motions with wrap off fall back to their file-line
+    // equivalents (gj≈j, g0≈0, g$≈$, g^≈^), which is also Vim's behavior.
+    // Wrapped-segment landings can't be oracle-compared (Nevi's text area
+    // is narrower than headless nvim's window, so wrap points differ); the
+    // wrap-enabled short-line cases below pin the wrap-mode code path.
+    // Note: cases use uniform line lengths because Nevi's gj/gk do not yet
+    // keep the preferred column across short lines like j/k do.
+    OracleCase {
+        name: "display line down without wrap",
+        initial_text: "alpha\nbeta\ngamma\n",
+        keys: "llgj",
+    },
+    OracleCase {
+        name: "display line up without wrap",
+        initial_text: "alpha\nbeta\ngamma\n",
+        keys: "Gllgk",
+    },
+    OracleCase {
+        name: "counted display line down without wrap",
+        initial_text: "alpha\nbeta\ngamma\ndelta\n",
+        keys: "3gj",
+    },
+    OracleCase {
+        name: "display line start without wrap",
+        initial_text: "alpha beta\n",
+        keys: "$g0",
+    },
+    OracleCase {
+        name: "display line end without wrap",
+        initial_text: "alpha beta\n",
+        keys: "g$",
+    },
+    OracleCase {
+        name: "display line first non blank without wrap",
+        initial_text: "   alpha\n",
+        keys: "$g^",
+    },
 ];
 
 const SHORT_VIEWPORT_CASES: &[OracleCase] = &[
@@ -756,11 +792,25 @@ const SMALL_VIEWPORT_CASES: &[OracleCase] = &[
     },
 ];
 
-const WRAP_ENABLED_CASES: &[OracleCase] = &[OracleCase {
-    name: "wrap enabled page down from file end",
-    initial_text: SCREEN_POSITION_TEXT,
-    keys: "G<C-f>",
-}];
+const WRAP_ENABLED_CASES: &[OracleCase] = &[
+    OracleCase {
+        name: "wrap enabled page down from file end",
+        initial_text: SCREEN_POSITION_TEXT,
+        keys: "G<C-f>",
+    },
+    // Short (unwrapped) lines so both editors agree on segment boundaries;
+    // pins the wrap-mode display-line code path rather than wrap points.
+    OracleCase {
+        name: "wrap enabled display line down",
+        initial_text: "alpha\nbeta\ngamma\n",
+        keys: "llgj",
+    },
+    OracleCase {
+        name: "wrap enabled display line end",
+        initial_text: "alpha beta\n",
+        keys: "g$",
+    },
+];
 
 const UNDO_REDO_CASES: &[OracleCase] = &[
     OracleCase {
