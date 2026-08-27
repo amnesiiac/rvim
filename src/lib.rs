@@ -27,6 +27,7 @@ mod parity_report;
 pub mod perf;
 pub mod project_replace;
 pub mod render_damage;
+pub mod shada;
 pub mod statusline;
 pub mod syntax;
 pub mod terminal;

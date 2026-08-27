@@ -394,6 +394,10 @@ fn main() -> anyhow::Result<()> {
     // Initialize editor with settings
     let mut editor = Editor::new(settings);
 
+    // Restore persisted session state (macros, registers, marks, search
+    // history). A missing or corrupt file loads as empty state.
+    editor.apply_shada(nevi::shada::load());
+
     // Enable finder profiling when profiling is enabled.
     if profile_enabled {
         nevi::terminal::FINDER_PROFILE_ENABLED.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -2191,6 +2195,9 @@ fn main() -> anyhow::Result<()> {
             let _ = stats.write_summary(file);
         }
     }
+
+    // Persist session state; losing it should never block shutdown.
+    let _ = nevi::shada::save(&editor.export_shada());
 
     // Shutdown all LSP servers gracefully
     if let Some(mut mlsp) = multi_lsp {

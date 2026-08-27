@@ -6,6 +6,10 @@
 
 - Unified the remaining floating windows under the rich chrome. The leader/which-key popup and the command suggestions/history popup are now rounded-corner boxes with icon border titles and right-aligned key hints, and the command popup marks the selected row with the finder's accent bar instead of `>`. The floating terminal's corners now come from the shared glyph table (square in minimal mode, matching the finder) and its title carries a terminal icon. Minimal mode keeps the previous flat headers throughout.
 
+### Vim Compatibility
+
+- Macros, named and unnamed registers, global marks, and search history now survive restarts, like Vim's shada. State is stored in `~/.local/state/nevi/state.json`, following nvim's `stdpath('state')` convention, and `$XDG_STATE_HOME` is respected. Macros are saved as readable key notation, so the file can be inspected or hand-edited, and a corrupt file never blocks startup. The frecency database and command history moved to the same directory; data in the old location is found automatically and migrates on its next save.
+
 ## 0.3.0 - 2026-08-25
 
 Nevi 0.3.0 rebuilds the statusline, finder, and explorer, closes a long list of

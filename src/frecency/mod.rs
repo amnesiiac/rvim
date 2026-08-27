@@ -39,9 +39,11 @@ impl FrecencyDb {
         Self::default()
     }
 
-    /// Save frecency database to file
+    /// Save frecency database to file. Always writes the XDG state path —
+    /// paired with the legacy read-fallback in `db_path`, this migrates
+    /// pre-0.4.0 data on its first save.
     pub fn save(&self) {
-        let path = Self::db_path();
+        let path = crate::shada::state_dir().join("frecency.json");
         if let Some(parent) = path.parent() {
             let _ = fs::create_dir_all(parent);
         }
@@ -50,12 +52,10 @@ impl FrecencyDb {
         }
     }
 
-    /// Get the path to the frecency database file
+    /// Read path for the frecency database (XDG state dir, with a fallback
+    /// to the legacy pre-0.4.0 location).
     fn db_path() -> PathBuf {
-        dirs::config_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join("nevi")
-            .join("frecency.json")
+        crate::shada::state_file("frecency.json")
     }
 
     /// Record that a completion item was selected
