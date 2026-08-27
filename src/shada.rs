@@ -296,4 +296,34 @@ mod tests {
         assert!(loaded.global_marks.is_empty(), "global marks are A-Z only");
         let _ = std::fs::remove_file(&path);
     }
+
+    /// A state.json written by a NEWER nevi (higher version, fields this build
+    /// doesn't know) must still load the fields we do understand, so a
+    /// downgrade never wipes user state. Pins that ShadaState keeps serde's
+    /// ignore-unknown-fields default and per-field defaults.
+    #[test]
+    fn future_version_file_loads_known_fields() {
+        let path = temp_state_path("future");
+        std::fs::write(
+            &path,
+            r#"{
+                "version": 99,
+                "macros": { "a": "dw" },
+                "jumplist": [{ "path": "/x", "line": 3 }],
+                "registers": { "b": { "text": "kept", "linewise": false, "shape": "block" } }
+            }"#,
+        )
+        .unwrap();
+
+        let loaded = load_from(&path);
+
+        assert_eq!(loaded.macros.get(&'a').map(String::as_str), Some("dw"));
+        assert_eq!(
+            loaded.registers.get(&'b').map(|r| r.text.as_str()),
+            Some("kept"),
+            "unknown nested fields must not reject the entry"
+        );
+        assert!(loaded.search_history.is_empty(), "absent fields default");
+        let _ = std::fs::remove_file(&path);
+    }
 }
