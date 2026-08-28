@@ -70,6 +70,29 @@ const KEYBIND_COVERAGE: &[KeybindCoverage] = &[
         "Move to next unmatched )",
         "unmatched close paren skips nested pair",
     ),
+    // Method motions deliberately deviate from Vim's brace heuristic (they
+    // use tree-sitter function boundaries), so they carry Nevi regression
+    // tests instead of oracle cases.
+    nevi_regression(
+        "]m",
+        "Move to next method/function start (tree-sitter)",
+        "method_motion_jumps_between_function_starts",
+    ),
+    nevi_regression(
+        "[m",
+        "Move to previous method/function start (tree-sitter)",
+        "method_motion_jumps_between_function_starts",
+    ),
+    nevi_regression(
+        "]M",
+        "Move to next method/function end (tree-sitter)",
+        "method_motion_ends_land_on_closing_brace",
+    ),
+    nevi_regression(
+        "[M",
+        "Move to previous method/function end (tree-sitter)",
+        "method_motion_ends_land_on_closing_brace",
+    ),
     vim_oracle(
         "gm",
         "Move to middle of the screen line",
@@ -230,6 +253,22 @@ const fn vim_oracle(
         state: CoverageState::Protected {
             test_id: oracle_case,
         },
+    }
+}
+
+/// Nevi-owned behavior protected by a focused regression test rather than an
+/// oracle case (used where we deliberately deviate from Vim).
+const fn nevi_regression(
+    key: &'static str,
+    description: &'static str,
+    test_id: &'static str,
+) -> KeybindCoverage {
+    KeybindCoverage {
+        mode: KeybindMode::Normal,
+        key,
+        description,
+        kind: CoverageKind::NeviRegression,
+        state: CoverageState::Protected { test_id },
     }
 }
 
