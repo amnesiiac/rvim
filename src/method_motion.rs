@@ -51,81 +51,98 @@ fn function_node_kinds(language: &str) -> &'static [&'static str] {
     }
 }
 
-/// Find the [count]'th method boundary relative to `cursor_byte`.
+/// Every function boundary in one parsed tree, sorted by byte offset.
 ///
-/// Returns `(line, char_col)` in the tree's source snapshot, or `None` when
-/// the language has no function kinds or there are fewer than `count`
-/// boundaries in that direction (Vim fails the whole motion rather than
-/// stopping at the last match).
-pub fn find_method_boundary(
-    tree: &Tree,
-    source: &str,
-    language: &str,
-    cursor_byte: usize,
-    boundary: MethodBoundary,
-    count: usize,
-) -> Option<(usize, usize)> {
-    let kinds = function_node_kinds(language);
-    if kinds.is_empty() {
-        return None;
-    }
-    let count = count.max(1);
-    let want_start = matches!(
-        boundary,
-        MethodBoundary::NextStart | MethodBoundary::PrevStart
-    );
+/// Collecting these visits every tree node — measured ~5ms on a 13k-line
+/// Rust file, dominated by per-node FFI calls — so SyntaxManager computes
+/// this once per parse and answers each keypress with a binary search here.
+#[derive(Debug, Default)]
+pub struct MethodBoundaries {
+    /// (byte, (line, char col)) of each function start.
+    starts: Vec<(usize, (usize, usize))>,
+    /// (byte, (line, char col)) of each function's last character.
+    ends: Vec<(usize, (usize, usize))>,
+}
 
-    // Full pre-order walk collecting every function boundary. The tree is
-    // already in memory, so this is pointer-chasing only — microseconds even
-    // on multi-thousand-line files (:FlightRecorder shows the real cost).
-    // Nested functions come out of order here, hence the sort below.
-    let mut targets: Vec<(usize, (usize, usize))> = Vec::new();
-    let mut walker = tree.walk();
-    'walk: loop {
-        let node = walker.node();
-        if kinds.contains(&node.kind()) {
-            let target = if want_start {
+impl MethodBoundaries {
+    pub fn collect(tree: &Tree, source: &str, language: &str) -> MethodBoundaries {
+        let kinds = function_node_kinds(language);
+        let mut boundaries = MethodBoundaries::default();
+        if kinds.is_empty() {
+            return boundaries;
+        }
+
+        let mut walker = tree.walk();
+        'walk: loop {
+            let node = walker.node();
+            if kinds.contains(&node.kind()) {
                 let point = node.start_position();
                 let line_start = node.start_byte() - point.column;
-                let col = source
-                    .get(line_start..node.start_byte())
-                    .map(|prefix| prefix.chars().count())?;
-                Some((node.start_byte(), (point.row, col)))
-            } else {
-                last_char_target(source, node.end_byte(), node.end_position())
-            };
-            if let Some(target) = target {
-                targets.push(target);
+                if let Some(prefix) = source.get(line_start..node.start_byte()) {
+                    boundaries
+                        .starts
+                        .push((node.start_byte(), (point.row, prefix.chars().count())));
+                }
+                if let Some(end) = last_char_target(source, node.end_byte(), node.end_position()) {
+                    boundaries.ends.push(end);
+                }
+            }
+            if walker.goto_first_child() {
+                continue;
+            }
+            loop {
+                if walker.goto_next_sibling() {
+                    break;
+                }
+                if !walker.goto_parent() {
+                    break 'walk;
+                }
             }
         }
-        if walker.goto_first_child() {
-            continue;
-        }
-        loop {
-            if walker.goto_next_sibling() {
-                break;
-            }
-            if !walker.goto_parent() {
-                break 'walk;
-            }
-        }
+
+        // Pre-order gives sorted starts already, but nested functions put
+        // inner ends before outer ends; sort both for uniform binary search.
+        boundaries.starts.sort_unstable_by_key(|t| t.0);
+        boundaries.starts.dedup_by_key(|t| t.0);
+        boundaries.ends.sort_unstable_by_key(|t| t.0);
+        boundaries.ends.dedup_by_key(|t| t.0);
+        boundaries
     }
 
-    targets.sort_unstable_by_key(|t| t.0);
-    targets.dedup_by_key(|t| t.0);
-
-    match boundary {
-        MethodBoundary::NextStart | MethodBoundary::NextEnd => targets
-            .iter()
-            .filter(|t| t.0 > cursor_byte)
-            .nth(count - 1)
-            .map(|t| t.1),
-        MethodBoundary::PrevStart | MethodBoundary::PrevEnd => targets
-            .iter()
-            .rev()
-            .filter(|t| t.0 < cursor_byte)
-            .nth(count - 1)
-            .map(|t| t.1),
+    /// Find the [count]'th boundary strictly before/after `cursor_byte`.
+    ///
+    /// Returns `(line, char_col)` in the tree's source snapshot, or `None`
+    /// when there are fewer than `count` boundaries in that direction (Vim
+    /// fails the whole motion rather than stopping at the last match).
+    pub fn find(
+        &self,
+        boundary: MethodBoundary,
+        cursor_byte: usize,
+        count: usize,
+    ) -> Option<(usize, usize)> {
+        let count = count.max(1);
+        match boundary {
+            MethodBoundary::NextStart | MethodBoundary::NextEnd => {
+                let targets = if boundary == MethodBoundary::NextStart {
+                    &self.starts
+                } else {
+                    &self.ends
+                };
+                let first_after = targets.partition_point(|t| t.0 <= cursor_byte);
+                targets.get(first_after + count - 1).map(|t| t.1)
+            }
+            MethodBoundary::PrevStart | MethodBoundary::PrevEnd => {
+                let targets = if boundary == MethodBoundary::PrevStart {
+                    &self.starts
+                } else {
+                    &self.ends
+                };
+                let first_at_or_after = targets.partition_point(|t| t.0 < cursor_byte);
+                first_at_or_after
+                    .checked_sub(count)
+                    .map(|idx| targets[idx].1)
+            }
+        }
     }
 }
 
@@ -169,7 +186,7 @@ mod tests {
         syntax.parse_string(source);
         let language = syntax.language_name().expect("language").to_string();
         let (tree, cached) = syntax.get_tree_and_source().expect("tree");
-        find_method_boundary(tree, cached, &language, cursor_byte, boundary, count)
+        MethodBoundaries::collect(tree, cached, &language).find(boundary, cursor_byte, count)
     }
 
     const RUST_SRC: &str = "\
@@ -303,6 +320,30 @@ func (s S) b() {
         assert_eq!(
             boundary("t.go", src, cursor, MethodBoundary::PrevStart, 1),
             Some((0, 0))
+        );
+
+        // Nested ends stay byte-sorted: the literal's `}` comes before b's,
+        // even though the tree walk visits the outer node first.
+        let cursor = src.find("go func").unwrap();
+        assert_eq!(
+            boundary("t.go", src, cursor, MethodBoundary::NextEnd, 1),
+            Some((4, 4))
+        );
+        assert_eq!(
+            boundary("t.go", src, cursor, MethodBoundary::NextEnd, 2),
+            Some((5, 0))
+        );
+    }
+
+    #[test]
+    fn end_col_counts_chars_not_bytes_on_multibyte_lines() {
+        // Multibyte chars before the closing `}` push its byte column past
+        // its char column; the cursor works in chars.
+        let src = "fn f() { let s = \"ππ\"; }\n";
+        let brace_char_col = src.chars().count() - 2;
+        assert_eq!(
+            boundary("t.rs", src, 0, MethodBoundary::NextEnd, 1),
+            Some((0, brace_char_col))
         );
     }
 

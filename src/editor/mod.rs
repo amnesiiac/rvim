@@ -11340,19 +11340,12 @@ impl Editor {
         boundary: crate::method_motion::MethodBoundary,
         count: usize,
     ) -> Option<(usize, usize)> {
-        let language = self.syntax.language_name()?;
         let cursor_byte = self
             .syntax
             .position_to_byte(self.cursor.line, self.cursor.col)?;
-        let (tree, source) = self.syntax.get_tree_and_source()?;
-        let (line, col) = crate::method_motion::find_method_boundary(
-            tree,
-            source,
-            language,
-            cursor_byte,
-            boundary,
-            count,
-        )?;
+        let (line, col) = self
+            .syntax
+            .method_motion_target(cursor_byte, boundary, count)?;
         let buffer = &self.buffers[self.current_buffer_idx];
         let line = line.min(last_addressable_line(buffer));
         let col = col.min(buffer.line_len(line).saturating_sub(1));
@@ -12834,6 +12827,54 @@ mod tests {
         editor.apply_motion(Motion::Method(MethodBoundary::NextStart), 1);
         assert_eq!(editor.cursor.line, 0);
         assert!(editor.cursor.col < editor.buffers[0].line_len(0));
+    }
+
+    #[test]
+    fn method_motion_cache_refreshes_after_reparse() {
+        use crate::method_motion::MethodBoundary;
+        // First motion populates the per-parse boundary cache...
+        let mut editor = editor_with_parsed_rust(METHOD_RS);
+        editor.apply_motion(Motion::Method(MethodBoundary::NextStart), 1);
+        assert_eq!((editor.cursor.line, editor.cursor.col), (3, 0));
+
+        // ...then a reparse of a different layout must invalidate it —
+        // stale cached boundaries would jump to line 3 instead of line 1.
+        editor.replace_buffer_content("fn one() {}\nfn two() {}\n");
+        editor.syntax.parse(&editor.buffers[0]);
+        editor.cursor.set(0, 0);
+        editor.apply_motion(Motion::Method(MethodBoundary::NextStart), 1);
+        assert_eq!((editor.cursor.line, editor.cursor.col), (1, 0));
+    }
+
+    #[test]
+    fn method_motion_no_ops_when_cursor_is_beyond_snapshot() {
+        use crate::method_motion::MethodBoundary;
+        // Buffer grew after the last parse; the cursor line doesn't exist in
+        // the snapshot, so position_to_byte fails and the motion does
+        // nothing rather than resolving against the wrong text.
+        let mut editor = editor_with_parsed_rust("fn a() {}\n");
+        editor.buffers[0].set_content("fn a() {}\nx\nx\nfn b() {}\n");
+        editor.cursor.set(2, 0);
+
+        editor.apply_motion(Motion::Method(MethodBoundary::NextStart), 1);
+        assert_eq!((editor.cursor.line, editor.cursor.col), (2, 0));
+    }
+
+    #[test]
+    fn method_motion_extends_visual_selection() {
+        use crate::method_motion::MethodBoundary;
+        let mut editor = editor_with_parsed_rust(METHOD_RS);
+        editor.cursor.set(0, 3);
+        editor.enter_visual_mode();
+
+        editor.apply_motion(Motion::Method(MethodBoundary::NextStart), 1);
+        // Cursor moved, anchor stayed: v]m selects up to the next function.
+        assert_eq!((editor.cursor.line, editor.cursor.col), (3, 0));
+        assert_eq!(editor.mode, Mode::Visual);
+        assert_eq!(
+            (editor.visual.anchor_line, editor.visual.anchor_col),
+            (0, 3)
+        );
     }
 
     // Issue #227: j/k must keep the preferred column (Vim curswant) when
