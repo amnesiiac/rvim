@@ -1718,6 +1718,9 @@ impl Editor {
             "html" | "htm" => "html".to_string(),
             "py" | "pyi" | "pyw" => "python".to_string(),
             "go" => "go".to_string(),
+            // Keep in sync with the Ruby filetypes the LSP layer recognizes
+            // (src/lsp/mod.rs) so `[ruby]` in languages.toml covers all of them.
+            "rb" | "rake" | "gemspec" | "ru" | "podspec" => "ruby".to_string(),
             "yaml" | "yml" => "yaml".to_string(),
             "sh" | "bash" | "zsh" | "ksh" | "bats" => "shell".to_string(),
             _ => ext_lower,
@@ -11666,6 +11669,40 @@ mod tests {
         assert_eq!(
             editor.get_current_formatter().map(|f| f.command.as_str()),
             Some("shfmt")
+        );
+        assert_eq!(editor.get_effective_tab_width(), 2);
+    }
+
+    #[test]
+    fn ruby_files_use_ruby_languages_toml_settings() {
+        use crate::config::{FormatterConfig, LanguageConfig, LanguagesConfig};
+        use std::collections::HashMap;
+
+        // Every Ruby filetype the LSP layer recognizes must resolve to the
+        // `[ruby]` config key, not fall through to its raw extension.
+        for ext in ["rb", "rake", "gemspec", "ru", "podspec"] {
+            assert_eq!(Editor::extension_to_language(ext), "ruby", "ext: {ext}");
+        }
+
+        let mut editor = Editor::default();
+        editor.set_buffer_path(PathBuf::from("/home/me/app/models/user.rb"));
+        editor.languages_config = LanguagesConfig {
+            languages: HashMap::from([(
+                "ruby".to_string(),
+                LanguageConfig {
+                    formatter: Some(FormatterConfig {
+                        command: "rubocop".to_string(),
+                        args: vec!["--stdin".to_string(), "{file}".to_string()],
+                        timeout: 5,
+                    }),
+                    tab_width: Some(2),
+                },
+            )]),
+        };
+
+        assert_eq!(
+            editor.get_current_formatter().map(|f| f.command.as_str()),
+            Some("rubocop")
         );
         assert_eq!(editor.get_effective_tab_width(), 2);
     }
