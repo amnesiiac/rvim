@@ -4,6 +4,7 @@
 
 ### Vim Compatibility
 
+- `cw` and `cW` now follow Vim's special case (`:h cw`): on a non-blank they change only up to the end of the word, leaving the trailing whitespace in place, and on the last character of a word they change just that character. On whitespace they still behave like `dw` plus insert. (#272)
 - Added the method motions `[m`, `]m`, `[M`, and `]M`. They jump between tree-sitter function boundaries instead of using Vim's brace heuristic, so they land on real functions and methods in Rust-style code. They work with operators (`d]m`, `y[m`) and counts, and do nothing in files without tree-sitter support.
 - Fixed `~` to advance the cursor past the last toggled character, as in Vim.
 - Extended Vim oracle coverage to the editing core: the case operators (`gu`, `gU`, `g~` and their line forms), `~`, `X`, `s`, `S`, `gp`, `gP`, `J`, and `gJ` are now verified against real Neovim and individually tracked in `PARITY.md`.

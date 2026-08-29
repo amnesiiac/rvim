@@ -149,6 +149,16 @@ const KEYBIND_COVERAGE: &[KeybindCoverage] = &[
     vim_oracle("o", "Open line below", "open line below"),
     vim_oracle("O", "Open line above", "open line above"),
     vim_oracle("dw", "Delete word with motion", "delete word"),
+    vim_oracle(
+        "cw",
+        "Change word without trailing spaces",
+        "change word excludes trailing spaces",
+    ),
+    vim_oracle(
+        "cW",
+        "Change big word without trailing spaces",
+        "change big word excludes trailing spaces",
+    ),
     vim_oracle("ciw", "Change inner word", "change inner word"),
     vim_oracle("cc", "Change current line", "change current line"),
     vim_oracle("C", "Change to end of line", "change to line end"),

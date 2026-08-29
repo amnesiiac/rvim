@@ -10,11 +10,11 @@ the test suite enforces, so it cannot drift from what is actually verified.
 ## Summary
 
 - **332 keybinds implemented** ([KEYBINDINGS.md](KEYBINDINGS.md)), **36 planned** ([KEYBINDS_ROADMAP.md](KEYBINDS_ROADMAP.md))
-- **103 keybinds in the coverage inventory**, each mapped to the automated test that protects it:
-  - 95 verified against real Neovim (v0.11.3) by the Vim oracle
+- **105 keybinds in the coverage inventory**, each mapped to the automated test that protects it:
+  - 97 verified against real Neovim (v0.11.3) by the Vim oracle
   - 7 protected by focused Nevi regression tests
   - 1 covered as default-keymap plumbing with dedicated tests
-- **252 oracle cases**: motions (113), editing (79), insert-entry (11), open-line (20), replace (27), undo-redo (2)
+- **259 oracle cases**: motions (113), editing (86), insert-entry (11), open-line (20), replace (27), undo-redo (2)
 - **0 tracked coverage gaps**
 - **141 of 431 documented keybind rows map to an inventoried keybind**; the rest work today but are not yet individually tracked ([full list below](#documented-but-not-yet-inventoried))
 
@@ -77,6 +77,8 @@ claim protection.
 | `o` | Open line below | `open line below` |
 | `O` | Open line above | `open line above` |
 | `dw` | Delete word with motion | `delete word` |
+| `cw` | Change word without trailing spaces | `change word excludes trailing spaces` |
+| `cW` | Change big word without trailing spaces | `change big word excludes trailing spaces` |
 | `ciw` | Change inner word | `change inner word` |
 | `cc` | Change current line | `change current line` |
 | `C` | Change to end of line | `change to line end` |

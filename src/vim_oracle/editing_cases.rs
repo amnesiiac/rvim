@@ -410,4 +410,46 @@ pub(super) const EDITING_CASES: &[OracleCase] = &[
         initial_text: "one\ntwo\n",
         keys: "yygP",
     },
+    // Issue #272: cw on a non-blank must not include the trailing
+    // whitespace the w motion covers (:h cw special case).
+    OracleCase {
+        name: "change word excludes trailing spaces",
+        initial_text: "abc def  # text\n",
+        keys: "llllcwxyz<Esc>",
+    },
+    // On the last char of a word, cw changes just that char (unlike ce,
+    // which would jump to the next word's end).
+    OracleCase {
+        name: "change word at last char of word",
+        initial_text: "ab cd ef\n",
+        keys: "lcwX<Esc>",
+    },
+    // With a count, the stand-still at word end consumes the first count.
+    OracleCase {
+        name: "counted change word from word end",
+        initial_text: "ab cd ef\n",
+        keys: "lc2wX<Esc>",
+    },
+    OracleCase {
+        name: "counted change word excludes trailing spaces",
+        initial_text: "abc def ghi jkl\n",
+        keys: "c2wX<Esc>",
+    },
+    // On whitespace the special case does not apply; cw keeps the
+    // exclusive w range and changes the blanks up to the next word.
+    OracleCase {
+        name: "change word on whitespace",
+        initial_text: "ab   cd\n",
+        keys: "llcwX<Esc>",
+    },
+    OracleCase {
+        name: "change big word excludes trailing spaces",
+        initial_text: "a.b c.d  e\n",
+        keys: "cWX<Esc>",
+    },
+    OracleCase {
+        name: "change word stops at punctuation boundary",
+        initial_text: "abc# def\n",
+        keys: "cwX<Esc>",
+    },
 ];
