@@ -9838,7 +9838,9 @@ impl Editor {
             end_col,
             CaseOperator::ToggleCase,
         );
-        self.cursor.col = end_col;
+        // Vim advances the cursor one past the last toggled char, clamped
+        // to the line's last character (:h ~).
+        self.cursor.col = (end_col + 1).min(line_len.saturating_sub(1));
         self.clamp_cursor();
     }
 
