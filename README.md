@@ -33,6 +33,7 @@ A fast, native terminal editor where your existing vim/neovim muscle memory just
 > Windows support is planned.
 
 - **Vim/neovim keybindings** - Most common keybinds implemented, more being added regularly
+- **Start screen** - Launching with no file shows recent files and harpoon pins; press `1`-`9` to jump back in
 - **Built-in LSP** - rust-analyzer, typescript-language-server, pyright, and more
 - **Tree-sitter syntax highlighting** - Fast, accurate highlighting for Rust, Go, Ruby, PHP, TypeScript, JavaScript, Python, CSS, JSON, TOML, HTML, Markdown, Bash/shell
 - **Theme selection** - Multiple built-in colorschemes with easy switching

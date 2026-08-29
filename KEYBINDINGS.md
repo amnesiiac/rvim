@@ -173,6 +173,7 @@ When specifying keys, use these formats:
 - [Finder/Picker (Telescope-like)](#finderpicker-telescope-like)
 - [File Explorer](#file-explorer)
 - [Harpoon-like Quick Files](#harpoon-like-quick-files)
+- [Start Screen](#start-screen)
 - [Commands](#commands)
 
 ---
@@ -899,6 +900,19 @@ Quick file switching for frequently used files (inspired by [harpoon.nvim](https
 See [Leader Key Mappings](#leader-key-mappings) for adding files and jumping to slots.
 
 ---
+
+## Start Screen
+
+Launching `nevi` with nothing to edit shows the start screen: recent files
+with their projects, harpoon pins, and key hints.
+
+| Key | Action |
+|-----|--------|
+| `1` - `9` | Open the numbered recent file |
+| `h` then `1` - `9` | Jump to that harpoon slot (same slots as `<leader>1`-`<leader>4`) |
+
+Every other key behaves as normal — start typing, open the finder, or open a
+file and the screen goes away on its own.
 
 ## Commands
 
