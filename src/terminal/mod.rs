@@ -1252,15 +1252,17 @@ impl Terminal {
                 self.render_explorer(editor)?;
             }
 
-            // Render all panes
-            for (pane_idx, pane) in editor.panes().iter().enumerate() {
-                let is_active = pane_idx == editor.active_pane_idx();
-                self.render_pane(editor, pane, is_active)?;
-            }
-
-            // Start screen over the untouched scratch (see crate::dashboard)
+            // While the start screen owns the single pane, draw it INSTEAD of
+            // the buffer: painting tildes/line numbers first and covering
+            // them afterwards flashes on every full render, and dashboard
+            // keypresses force full renders.
             if editor.dashboard_active() {
                 self.render_dashboard(editor)?;
+            } else {
+                for (pane_idx, pane) in editor.panes().iter().enumerate() {
+                    let is_active = pane_idx == editor.active_pane_idx();
+                    self.render_pane(editor, pane, is_active)?;
+                }
             }
 
             // Draw separators between panes if we have multiple panes
@@ -1689,8 +1691,12 @@ impl Terminal {
         Ok(())
     }
 
-    /// Render the start screen over the (empty) active pane. Runs only while
-    /// `dashboard_active` holds — rare, full-render frames by construction.
+    /// Render the start screen in place of the (empty) active pane.
+    ///
+    /// The frame is assembled off-screen and written once — same reason as
+    /// the floating terminal: intermediate flushes let terminal emulators
+    /// present half-drawn frames, which reads as flicker on every keypress
+    /// (dashboard keypresses always force full renders).
     fn render_dashboard(&mut self, editor: &Editor) -> anyhow::Result<()> {
         let pane = &editor.panes()[editor.active_pane_idx()];
         let rect = pane.rect;
@@ -1702,11 +1708,12 @@ impl Terminal {
 
         let rows = rect.height as usize;
         let cols = rect.width as usize;
+        let mut frame: Vec<u8> = Vec::with_capacity(rows * cols + 1024);
         // Blank the pane so line numbers and tildes don't show through.
-        queue!(self.stdout, SetBackgroundColor(theme.ui.background))?;
+        queue!(&mut frame, SetBackgroundColor(theme.ui.background))?;
         for row in 0..rows {
-            queue!(self.stdout, cursor::MoveTo(rect.x, rect.y + row as u16))?;
-            write!(self.stdout, "{:cols$}", "")?;
+            queue!(&mut frame, cursor::MoveTo(rect.x, rect.y + row as u16))?;
+            write!(&mut frame, "{:cols$}", "")?;
         }
 
         let visible = lines.len().min(rows);
@@ -1719,11 +1726,7 @@ impl Terminal {
             // widths so their columns stay aligned.
             let width = line.width().min(cols);
             let left = rect.x as usize + (cols - width) / 2;
-            queue!(
-                self.stdout,
-                cursor::MoveTo(left as u16, (top + i) as u16),
-                SetBackgroundColor(theme.ui.background)
-            )?;
+            queue!(&mut frame, cursor::MoveTo(left as u16, (top + i) as u16))?;
             let mut remaining = cols;
             for s in &line.spans {
                 use crate::dashboard::SpanStyle as S;
@@ -1735,7 +1738,7 @@ impl Terminal {
                     S::Dim => (theme.ui.line_number, false),
                 };
                 queue!(
-                    self.stdout,
+                    &mut frame,
                     SetForegroundColor(color),
                     SetAttribute(if bold {
                         Attribute::Bold
@@ -1745,14 +1748,15 @@ impl Terminal {
                 )?;
                 let text: String = s.text.chars().take(remaining).collect();
                 remaining -= text.chars().count();
-                write!(self.stdout, "{}", text)?;
+                write!(&mut frame, "{}", text)?;
                 if remaining == 0 {
                     break;
                 }
             }
-            queue!(self.stdout, SetAttribute(Attribute::NormalIntensity))?;
+            queue!(&mut frame, SetAttribute(Attribute::NormalIntensity))?;
         }
-        execute!(self.stdout, SetAttribute(Attribute::Reset), ResetColor)?;
+        queue!(&mut frame, SetAttribute(Attribute::Reset), ResetColor)?;
+        self.stdout.write_all(&frame)?;
         Ok(())
     }
 
@@ -12140,6 +12144,13 @@ mod tests {
         assert!(rendered.contains("RECENT"));
         assert!(rendered.contains("recent.rs"));
         assert!(rendered.contains("find files"), "key hints are listed");
+        // The empty pane must never be painted beneath the start screen —
+        // paint-then-cover is visible as flicker on every keypress.
+        assert_eq!(
+            rendered.matches('~').count(),
+            0,
+            "no tilde rows under the dashboard; output={rendered:?}"
+        );
 
         editor.open_file(file).unwrap();
         let rendered = render_editor_to_string(&editor);
