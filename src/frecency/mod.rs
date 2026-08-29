@@ -28,9 +28,14 @@ pub struct FrecencyDb {
 impl FrecencyDb {
     /// Load frecency database from file, or create empty if not found
     pub fn load() -> Self {
-        let path = Self::db_path();
+        Self::load_at(&Self::db_path())
+    }
+
+    /// Load a frecency database from an explicit file (also used by the
+    /// recent-files store, which reuses this scoring with its own db).
+    pub fn load_at(path: &std::path::Path) -> Self {
         if path.exists() {
-            if let Ok(contents) = fs::read_to_string(&path) {
+            if let Ok(contents) = fs::read_to_string(path) {
                 if let Ok(db) = serde_json::from_str(&contents) {
                     return db;
                 }
@@ -41,7 +46,11 @@ impl FrecencyDb {
 
     /// Save frecency database to file
     pub fn save(&self) {
-        let path = Self::db_path();
+        self.save_at(&Self::db_path());
+    }
+
+    /// Save the database to an explicit file.
+    pub fn save_at(&self, path: &std::path::Path) {
         if let Some(parent) = path.parent() {
             let _ = fs::create_dir_all(parent);
         }
@@ -109,15 +118,13 @@ impl FrecencyDb {
         frequency_factor * recency_factor
     }
 
-    /// Get all entries (for debugging)
-    #[allow(dead_code)]
+    /// Get all entries
     pub fn entries(&self) -> &HashMap<String, FrecencyEntry> {
         &self.entries
     }
 
     /// Prune old entries that haven't been used in a long time
     /// Keeps the database from growing indefinitely
-    #[allow(dead_code)]
     pub fn prune(&mut self, max_age_days: u64) {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)

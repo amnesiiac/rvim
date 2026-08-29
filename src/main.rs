@@ -320,7 +320,16 @@ fn pick_mode_action_for_key(editor: &Editor, key: KeyEvent) -> PickModeAction {
     }
 }
 
+/// Project root for a file opened from the CLI: its repo checkout root when
+/// inside one, otherwise the file's own directory (the old behavior). Keeps
+/// harpoon pins, the explorer, and the floating terminal repo-scoped instead
+/// of scoped to whichever subdirectory the file happened to live in.
+fn project_root_for_file(parent: &std::path::Path) -> PathBuf {
+    nevi::git::find_repo_root(parent).unwrap_or_else(|| parent.to_path_buf())
+}
+
 fn main() -> anyhow::Result<()> {
+    let process_start = Instant::now();
     let (arg_path, read_only_view, diff_paths, pick_root) =
         match startup_action_from_args(env::args().skip(1)) {
             CliStartupAction::PrintVersion => {
@@ -438,7 +447,7 @@ fn main() -> anyhow::Result<()> {
             }
             initial_file = Some(abs_path.clone());
             if let Some(parent) = abs_path.parent() {
-                editor.set_project_root(parent.to_path_buf());
+                editor.set_project_root(project_root_for_file(parent));
             }
             editor.open_file_read_only(abs_path.clone())?;
             editor.set_status(format!("Read-only view: {}", abs_path.display()));
@@ -447,10 +456,10 @@ fn main() -> anyhow::Result<()> {
             editor.set_project_root(abs_path);
             open_file_picker = true;
         } else if abs_path.is_file() || !abs_path.exists() {
-            // File (or new file): open it and set parent as project root
+            // File (or new file): open it and scope the project to its repo
             initial_file = Some(abs_path.clone());
             if let Some(parent) = abs_path.parent() {
-                editor.set_project_root(parent.to_path_buf());
+                editor.set_project_root(project_root_for_file(parent));
             }
             editor.open_file(abs_path)?;
         }
@@ -625,6 +634,9 @@ fn main() -> anyhow::Result<()> {
     // Grep search debouncing: delay grep searches to avoid searching on every keystroke
     let grep_debounce = Duration::from_millis(150);
     let mut grep_pending_since: Option<Instant> = None;
+
+    // Setup is done; freeze the start screen's "ready in Nms" number here.
+    editor.startup_ready_ms = Some(process_start.elapsed().as_millis());
 
     // Main event loop
     let mut loop_start = Instant::now();
@@ -2196,6 +2208,9 @@ fn main() -> anyhow::Result<()> {
     if let Some(mut mlsp) = multi_lsp {
         mlsp.shutdown();
     }
+
+    // Recent-files opens are recorded in memory only; persist them once here.
+    editor.recent_files.save();
 
     drop(terminal);
 

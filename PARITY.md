@@ -10,13 +10,13 @@ the test suite enforces, so it cannot drift from what is actually verified.
 ## Summary
 
 - **329 keybinds implemented** ([KEYBINDINGS.md](KEYBINDINGS.md)), **39 planned** ([KEYBINDS_ROADMAP.md](KEYBINDS_ROADMAP.md))
-- **78 keybinds in the coverage inventory**, each mapped to the automated test that protects it:
+- **80 keybinds in the coverage inventory**, each mapped to the automated test that protects it:
   - 76 verified against real Neovim (v0.11.3) by the Vim oracle
-  - 1 protected by focused Nevi regression tests
+  - 3 protected by focused Nevi regression tests
   - 1 covered as default-keymap plumbing with dedicated tests
 - **233 oracle cases**: motions (113), editing (60), insert-entry (11), open-line (20), replace (27), undo-redo (2)
 - **0 tracked coverage gaps**
-- **108 of 426 documented keybind rows map to an inventoried keybind**; the rest work today but are not yet individually tracked ([full list below](#documented-but-not-yet-inventoried))
+- **109 of 428 documented keybind rows map to an inventoried keybind**; the rest work today but are not yet individually tracked ([full list below](#documented-but-not-yet-inventoried))
 
 ## How the Vim oracle works
 
@@ -120,6 +120,8 @@ Nevi-owned behavior with no Vim equivalent to compare against.
 | Keybind | Behavior | Test |
 |---------|----------|----|
 | `<leader>j` | Start labeled jump navigation | `labeled_jump_jumps_to_selected_visible_match` |
+| `1-9 (start screen)` | Open the numbered start screen entry | `dashboard_digit_opens_numbered_entry_via_key` |
+| `h1-h9 (start screen)` | Jump to the numbered harpoon slot from the start screen | `dashboard_h_digit_opens_harpoon_slot` |
 
 ## Default-keymap plumbing
 
@@ -141,7 +143,7 @@ like `dw` are tracked as single inventory entries, so their building-block
 rows may already be covered compositionally.)
 
 <details>
-<summary>318 untracked rows</summary>
+<summary>319 untracked rows</summary>
 
 | Keybind | Behavior |
 |---------|----------|
@@ -378,6 +380,7 @@ rows may already be covered compositionally.)
 | `c` | Copy selected item |
 | `]h` | Go to next harpoon file |
 | `[h` | Go to previous harpoon file |
+| `1` - `9` | Open the numbered recent file |
 | `Ctrl+e` | Move to end of command line |
 | `Ctrl+w` | Delete word before cursor |
 | `Ctrl+r {reg}` | Insert register contents |

@@ -215,6 +215,24 @@ const KEYBIND_COVERAGE: &[KeybindCoverage] = &[
     vim_oracle("zz", "Center cursor line", "center cursor line"),
     vim_oracle("zt", "Move cursor line to top", "cursor line to top"),
     vim_oracle("zb", "Move cursor line to bottom", "cursor line to bottom"),
+    KeybindCoverage {
+        mode: KeybindMode::Normal,
+        key: "1-9 (start screen)",
+        description: "Open the numbered start screen entry",
+        kind: CoverageKind::NeviRegression,
+        state: CoverageState::Protected {
+            test_id: "dashboard_digit_opens_numbered_entry_via_key",
+        },
+    },
+    KeybindCoverage {
+        mode: KeybindMode::Normal,
+        key: "h1-h9 (start screen)",
+        description: "Jump to the numbered harpoon slot from the start screen",
+        kind: CoverageKind::NeviRegression,
+        state: CoverageState::Protected {
+            test_id: "dashboard_h_digit_opens_harpoon_slot",
+        },
+    },
 ];
 
 const fn vim_oracle(
