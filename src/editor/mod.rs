@@ -22,7 +22,7 @@ use crate::finder::FuzzyFinder;
 use crate::frecency::FrecencyDb;
 use crate::input::{
     CaseOperator, InputState, Motion, TextObject, TextObjectModifier, TextObjectType, apply_motion,
-    motion::last_addressable_line,
+    motion::{change_word_end, last_addressable_line},
 };
 use crate::lsp::types::{CodeActionItem, CompletionItem, Diagnostic, Location, TextEdit};
 use crate::syntax::SyntaxManager;
@@ -4731,7 +4731,23 @@ impl Editor {
 
     /// Change from cursor to motion target (delete + insert mode)
     pub fn change_motion(&mut self, motion: Motion, count: usize, register: Option<char>) {
-        if let Some((start_line, start_col, end_line, end_col)) = self.motion_range(motion, count) {
+        // Vim's cw/cW special case (:h cw): on a non-blank, the change stops
+        // at the end of the word rather than including the trailing
+        // whitespace the w motion would cover.
+        let range = match motion {
+            Motion::WordForward | Motion::BigWordForward => change_word_end(
+                &self.buffers[self.current_buffer_idx],
+                self.cursor.line,
+                self.cursor.col,
+                count,
+                motion == Motion::BigWordForward,
+            )
+            .map(|(end_line, end_col)| (self.cursor.line, self.cursor.col, end_line, end_col)),
+            _ => None,
+        }
+        .or_else(|| self.motion_range(motion, count));
+
+        if let Some((start_line, start_col, end_line, end_col)) = range {
             let linewise = Self::motion_is_linewise(motion);
             let text = self.get_range_text(start_line, start_col, end_line, end_col);
 
