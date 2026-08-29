@@ -1053,6 +1053,14 @@ pub struct Editor {
     pub needs_completion_refresh: bool,
     /// Frecency database for completion ranking
     pub frecency: FrecencyDb,
+    /// Recently opened files backing the start screen. In-memory during the
+    /// session; the binary saves it once on exit.
+    pub recent_files: crate::recent_files::RecentFiles,
+    /// Startup-to-first-frame time, set by the binary; shown on the start
+    /// screen's "ready in Nms" line (None in tests / embedded use).
+    pub startup_ready_ms: Option<u128>,
+    /// True after `h` was pressed on the start screen, awaiting a slot digit.
+    pub dashboard_harpoon_pending: bool,
     /// Signature help popup content
     pub signature_help: Option<crate::lsp::types::SignatureHelpResult>,
     /// Show diagnostic floating popup at cursor
@@ -1589,6 +1597,9 @@ impl Editor {
             hover_content: None,
             needs_completion_refresh: false,
             frecency: FrecencyDb::load(),
+            recent_files: crate::recent_files::RecentFiles::load(),
+            startup_ready_ms: None,
+            dashboard_harpoon_pending: false,
             signature_help: None,
             show_diagnostic_float: false,
             search_matches: Vec::new(),
@@ -3772,6 +3783,7 @@ impl Editor {
             self.parse_current_buffer();
             // Update git diff for this buffer
             self.update_git_diff();
+            self.recent_files.record(&path);
             return Ok(());
         }
 
@@ -3823,6 +3835,8 @@ impl Editor {
 
         // Update git diff for the newly opened file
         self.update_git_diff();
+
+        self.recent_files.record(&path);
 
         Ok(())
     }

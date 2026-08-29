@@ -1252,10 +1252,17 @@ impl Terminal {
                 self.render_explorer(editor)?;
             }
 
-            // Render all panes
-            for (pane_idx, pane) in editor.panes().iter().enumerate() {
-                let is_active = pane_idx == editor.active_pane_idx();
-                self.render_pane(editor, pane, is_active)?;
+            // While the start screen owns the single pane, draw it INSTEAD of
+            // the buffer: painting tildes/line numbers first and covering
+            // them afterwards flashes on every full render, and dashboard
+            // keypresses force full renders.
+            if editor.dashboard_active() {
+                self.render_dashboard(editor)?;
+            } else {
+                for (pane_idx, pane) in editor.panes().iter().enumerate() {
+                    let is_active = pane_idx == editor.active_pane_idx();
+                    self.render_pane(editor, pane, is_active)?;
+                }
             }
 
             // Draw separators between panes if we have multiple panes
@@ -1392,6 +1399,7 @@ impl Terminal {
             || editor.command_line.popup_mode != CommandPopupMode::None
             || !editor.search_matches.is_empty()
             || editor.mode.is_visual()
+            || editor.dashboard_active()
     }
 
     fn can_partial_render_editor_rows(editor: &Editor, rows: &[usize]) -> bool {
@@ -1680,6 +1688,75 @@ impl Terminal {
             )?;
         }
         execute!(self.stdout, ResetColor)?;
+        Ok(())
+    }
+
+    /// Render the start screen in place of the (empty) active pane.
+    ///
+    /// The frame is assembled off-screen and written once — same reason as
+    /// the floating terminal: intermediate flushes let terminal emulators
+    /// present half-drawn frames, which reads as flicker on every keypress
+    /// (dashboard keypresses always force full renders).
+    fn render_dashboard(&mut self, editor: &Editor) -> anyhow::Result<()> {
+        let pane = &editor.panes()[editor.active_pane_idx()];
+        let rect = pane.rect;
+        if rect.width < 20 || rect.height < 4 {
+            return Ok(());
+        }
+        let theme = editor.theme();
+        let lines = crate::dashboard::dashboard_lines(editor);
+
+        let rows = rect.height as usize;
+        let cols = rect.width as usize;
+        let mut frame: Vec<u8> = Vec::with_capacity(rows * cols + 1024);
+        // Blank the pane so line numbers and tildes don't show through.
+        queue!(&mut frame, SetBackgroundColor(theme.ui.background))?;
+        for row in 0..rows {
+            queue!(&mut frame, cursor::MoveTo(rect.x, rect.y + row as u16))?;
+            write!(&mut frame, "{:cols$}", "")?;
+        }
+
+        let visible = lines.len().min(rows);
+        let top = rect.y as usize + (rows - visible) / 2;
+        for (i, line) in lines.iter().take(visible).enumerate() {
+            if line.spans.is_empty() {
+                continue;
+            }
+            // Each line centers itself; entry rows are pre-padded to equal
+            // widths so their columns stay aligned.
+            let width = line.width().min(cols);
+            let left = rect.x as usize + (cols - width) / 2;
+            queue!(&mut frame, cursor::MoveTo(left as u16, (top + i) as u16))?;
+            let mut remaining = cols;
+            for s in &line.spans {
+                use crate::dashboard::SpanStyle as S;
+                let (color, bold) = match s.style {
+                    S::Title => (theme.ui.finder_prompt, true),
+                    S::Accent => (theme.ui.finder_prompt, false),
+                    S::Key => (theme.ui.finder_match, true),
+                    S::TextBold => (theme.ui.foreground, true),
+                    S::Dim => (theme.ui.line_number, false),
+                };
+                queue!(
+                    &mut frame,
+                    SetForegroundColor(color),
+                    SetAttribute(if bold {
+                        Attribute::Bold
+                    } else {
+                        Attribute::NormalIntensity
+                    })
+                )?;
+                let text: String = s.text.chars().take(remaining).collect();
+                remaining -= text.chars().count();
+                write!(&mut frame, "{}", text)?;
+                if remaining == 0 {
+                    break;
+                }
+            }
+            queue!(&mut frame, SetAttribute(Attribute::NormalIntensity))?;
+        }
+        queue!(&mut frame, SetAttribute(Attribute::Reset), ResetColor)?;
+        self.stdout.write_all(&frame)?;
         Ok(())
     }
 
@@ -7274,6 +7351,38 @@ fn handle_labeled_jump_key(editor: &mut Editor, key: KeyEvent) {
 fn handle_normal_mode(editor: &mut Editor, key: KeyEvent) {
     let t_start = std::time::Instant::now();
 
+    // Start screen shortcuts: 1-9 open a RECENT entry, h then 1-9 jumps to
+    // that harpoon slot. Digits can't start a count here (the scratch is
+    // empty) and h can't move left, so both keys are free; a pending leader
+    // sequence keeps its own digit meaning (<leader>t1 etc.).
+    if editor.dashboard_active()
+        && editor.leader_sequence.is_none()
+        && key.modifiers == KeyModifiers::NONE
+    {
+        match key.code {
+            KeyCode::Char('h') => {
+                editor.dashboard_harpoon_pending = true;
+                return;
+            }
+            KeyCode::Char(c @ '1'..='9') => {
+                let number = c as usize - '0' as usize;
+                let harpoon = editor.dashboard_harpoon_pending;
+                editor.dashboard_harpoon_pending = false;
+                let opened = if harpoon {
+                    editor.open_dashboard_harpoon(number)
+                } else {
+                    editor.open_dashboard_entry(number)
+                };
+                if opened {
+                    return;
+                }
+            }
+            _ => editor.dashboard_harpoon_pending = false,
+        }
+    } else {
+        editor.dashboard_harpoon_pending = false;
+    }
+
     // Handle leader key sequences
     if let Some(ref mut sequence) = editor.leader_sequence {
         // We're in leader mode, accumulating a sequence
@@ -12007,6 +12116,111 @@ mod tests {
         assert!(!rendered.contains('╭') && !rendered.contains('\u{f120}'));
     }
 
+    fn dashboard_test_editor(name: &str) -> (Editor, std::path::PathBuf) {
+        let base = std::env::temp_dir().join(format!("nevi-dashboard-render-{name}"));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        let mut editor = Editor::default();
+        editor.set_size(100, 30);
+        editor.recent_files =
+            crate::recent_files::RecentFiles::load_from(base.join("recents.json"));
+        editor.project_root = Some(base.clone());
+        (editor, base)
+    }
+
+    #[test]
+    fn dashboard_renders_on_untouched_scratch_and_vanishes_after_open() {
+        let (mut editor, base) = dashboard_test_editor("visible");
+        let file = base.join("recent.rs");
+        std::fs::write(&file, "fn main() {}\n").unwrap();
+        editor.recent_files.record(&file);
+
+        let rendered = render_editor_to_string(&editor);
+        assert!(
+            rendered.contains("N E V I"),
+            "start screen shows the brand title; output={rendered:?}"
+        );
+        assert!(rendered.contains("your vim muscle memory"));
+        assert!(rendered.contains("RECENT"));
+        assert!(rendered.contains("recent.rs"));
+        assert!(rendered.contains("find files"), "key hints are listed");
+        // The empty pane must never be painted beneath the start screen —
+        // paint-then-cover is visible as flicker on every keypress.
+        assert_eq!(
+            rendered.matches('~').count(),
+            0,
+            "no tilde rows under the dashboard; output={rendered:?}"
+        );
+
+        editor.open_file(file).unwrap();
+        let rendered = render_editor_to_string(&editor);
+        assert!(
+            !rendered.contains("RECENT"),
+            "start screen disappears once a real buffer is open"
+        );
+    }
+
+    #[test]
+    fn dashboard_h_digit_opens_harpoon_slot() {
+        let (mut editor, base) = dashboard_test_editor("harpoon-key");
+        let pin_a = base.join("pin_a.rs");
+        let pin_b = base.join("pin_b.rs");
+        std::fs::write(&pin_a, "a\n").unwrap();
+        std::fs::write(&pin_b, "b\n").unwrap();
+        editor.harpoon.add_file(&pin_a);
+        editor.harpoon.add_file(&pin_b);
+
+        handle_key(&mut editor, key('h'));
+        assert!(editor.dashboard_active(), "h alone just arms the shortcut");
+        handle_key(&mut editor, key('2'));
+
+        assert_eq!(
+            editor
+                .buffer()
+                .path
+                .as_ref()
+                .and_then(|p| p.file_name())
+                .and_then(|n| n.to_str()),
+            Some("pin_b.rs"),
+            "h2 opens harpoon slot 2"
+        );
+        assert!(!editor.dashboard_harpoon_pending);
+    }
+
+    #[test]
+    fn dashboard_digit_opens_numbered_entry_via_key() {
+        let (mut editor, base) = dashboard_test_editor("digit");
+        let first = base.join("first.rs");
+        let second = base.join("second.rs");
+        std::fs::write(&first, "a\n").unwrap();
+        std::fs::write(&second, "b\n").unwrap();
+        editor.recent_files.record(&first);
+        editor.recent_files.record(&first);
+        editor.recent_files.record(&second);
+
+        handle_key(&mut editor, key('2'));
+
+        assert_eq!(
+            editor.buffer().path.as_deref(),
+            Some(std::fs::canonicalize(&second).unwrap().as_path()),
+            "pressing 2 opens the second numbered entry"
+        );
+        assert!(!editor.dashboard_active());
+    }
+
+    #[test]
+    fn dashboard_digit_without_entries_falls_through() {
+        let (mut editor, _base) = dashboard_test_editor("empty");
+
+        handle_key(&mut editor, key('3'));
+
+        assert!(
+            editor.dashboard_active(),
+            "digit with no entry behaves like a normal count prefix"
+        );
+        assert!(editor.buffer().path.is_none());
+    }
+
     #[test]
     fn full_render_harness_captures_buffer_text() {
         let mut editor = Editor::default();
@@ -15451,6 +15665,9 @@ mod tests {
     #[test]
     fn partial_render_kind_allows_only_statusline_damage() {
         let mut editor = Editor::default();
+        // A pathless untouched scratch would show the start screen, which
+        // blocks partial rendering; name the buffer to opt out.
+        editor.buffer_mut().path = Some(PathBuf::from("named.rs"));
         editor.render_damage.clear_after_full_render();
         editor.render_damage.mark_statusline();
         assert_eq!(
