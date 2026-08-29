@@ -16,23 +16,22 @@ pub struct RecentFiles {
 }
 
 impl RecentFiles {
+    /// Reads from the XDG state dir (with the legacy pre-0.4.0 fallback that
+    /// `shada::state_file` provides); saves always write the state dir, so
+    /// data in an old location migrates on its first save.
     pub fn load() -> Self {
-        Self::load_from(Self::default_db_path())
+        Self {
+            db: FrecencyDb::load_at(&crate::shada::state_file("recent_files.json")),
+            db_path: crate::shada::state_dir().join("recent_files.json"),
+        }
     }
 
-    /// Load from an explicit db file (tests point this at a temp path).
+    /// Load and save at one explicit db file (tests point this at a temp path).
     pub fn load_from(db_path: PathBuf) -> Self {
         Self {
             db: FrecencyDb::load_at(&db_path),
             db_path,
         }
-    }
-
-    fn default_db_path() -> PathBuf {
-        dirs::config_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join("nevi")
-            .join("recent_files.json")
     }
 
     /// Record a file open. In-memory only — call `save` on editor exit.
