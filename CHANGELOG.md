@@ -5,6 +5,9 @@
 ### Vim Compatibility
 
 - Added the method motions `[m`, `]m`, `[M`, and `]M`. They jump between tree-sitter function boundaries instead of using Vim's brace heuristic, so they land on real functions and methods in Rust-style code. They work with operators (`d]m`, `y[m`) and counts, and do nothing in files without tree-sitter support.
+- Fixed `~` to advance the cursor past the last toggled character, as in Vim.
+- Extended Vim oracle coverage to the editing core: the case operators (`gu`, `gU`, `g~` and their line forms), `~`, `X`, `s`, `S`, `gp`, `gP`, `J`, and `gJ` are now verified against real Neovim and individually tracked in `PARITY.md`.
+- Corrected the docs: `.` (repeat last change) was listed as implemented but only shows a status note today. It moved to the roadmap.
 
 ### Interface
 

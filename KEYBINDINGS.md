@@ -353,7 +353,6 @@ Operators are commands that wait for a motion. For example, `d` (delete) + `w` (
 | `gP` / `{n}gP` | Paste before and leave cursor after pasted text |
 | `r{char}` / `{n}r{char}` | Replace exactly one/count characters; `Enter` replaces them with one newline |
 | `R` / `{n}R` | Enter replace mode; a count repeats the entered replacement text |
-| `.` | Repeat last change |
 
 > **Examples:**
 > - `dw` - Delete from cursor to start of next word

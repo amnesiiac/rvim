@@ -168,6 +168,71 @@ const KEYBIND_COVERAGE: &[KeybindCoverage] = &[
         "delete with line-end motion",
     ),
     vim_oracle("caw", "Change around word", "change around word"),
+    // Editing-core batch: bare operators, substitute family, paste
+    // variants, replace, case changing, joins.
+    vim_oracle("d", "Delete with a motion", "delete word"),
+    vim_oracle("c", "Change with a motion", "change inner word"),
+    vim_oracle("y", "Yank with a motion", "yank to line end"),
+    vim_oracle(
+        "X",
+        "Delete character before cursor",
+        "delete char before cursor",
+    ),
+    vim_oracle("s", "Substitute character and insert", "substitute char"),
+    vim_oracle("S", "Substitute entire line", "substitute line"),
+    vim_oracle(
+        "gp",
+        "Paste after, cursor after pasted text",
+        "linewise paste after and move",
+    ),
+    vim_oracle(
+        "gP",
+        "Paste before, cursor after pasted text",
+        "linewise paste before and move",
+    ),
+    vim_oracle(
+        "r{char}",
+        "Replace exactly one character",
+        "replace character",
+    ),
+    vim_oracle(
+        "R",
+        "Enter replace mode",
+        "counted replace mode repeats inserted text",
+    ),
+    vim_oracle(
+        "~",
+        "Toggle case of character under cursor",
+        "toggle case single char",
+    ),
+    vim_oracle(
+        "gu{motion}",
+        "Lowercase with a motion",
+        "lowercase to word end",
+    ),
+    vim_oracle("guu", "Lowercase entire line", "lowercase entire line"),
+    vim_oracle(
+        "gU{motion}",
+        "Uppercase with a motion",
+        "uppercase to word end",
+    ),
+    vim_oracle("gUU", "Uppercase entire line", "uppercase entire line"),
+    vim_oracle(
+        "g~{motion}",
+        "Toggle case with a motion",
+        "toggle case to word end",
+    ),
+    vim_oracle(
+        "g~~",
+        "Toggle case of entire line",
+        "toggle case entire line",
+    ),
+    vim_oracle("J", "Join lines with a space", "join lines with space"),
+    vim_oracle(
+        "gJ",
+        "Join lines without a space",
+        "join without added space",
+    ),
     vim_oracle("u", "Undo latest change", "undo insert"),
     vim_oracle("<C-r>", "Redo latest undone change", "redo insert"),
     KeybindCoverage {
