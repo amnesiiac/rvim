@@ -82,6 +82,11 @@ pub enum Motion {
     // pane width is available, like the other display-line motions)
     DisplayLineMiddle,
 
+    // ]m [m ]M [M - tree-sitter function boundaries (handled in
+    // Editor::apply_motion / motion_range where the parse tree lives; see
+    // src/method_motion.rs for the deliberate Vim deviation)
+    Method(crate::method_motion::MethodBoundary),
+
     // go - go to the [count]'th byte of the buffer (1-based, default 1)
     GoToByte,
 }
@@ -400,6 +405,12 @@ pub fn apply_motion(
             // Screen-aware handling lives in Editor::apply_motion; operator
             // ranges would need the pane width, so the motion fails there
             // rather than computing a wrong range.
+            None
+        }
+
+        Motion::Method(_) => {
+            // Needs the parse tree; resolved in Editor::apply_motion and
+            // Editor::motion_range, which both hold self.syntax.
             None
         }
 

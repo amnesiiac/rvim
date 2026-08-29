@@ -23,6 +23,7 @@ pub mod labeled_jump;
 pub mod lsp;
 pub mod macro_lens;
 pub mod markdown_preview;
+pub mod method_motion;
 #[cfg(test)]
 mod parity_report;
 pub mod perf;
