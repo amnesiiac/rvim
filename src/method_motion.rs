@@ -53,9 +53,11 @@ fn function_node_kinds(language: &str) -> &'static [&'static str] {
 
 /// Every function boundary in one parsed tree, sorted by byte offset.
 ///
-/// Collecting these visits every tree node — measured ~5ms on a 13k-line
-/// Rust file, dominated by per-node FFI calls — so SyntaxManager computes
-/// this once per parse and answers each keypress with a binary search here.
+/// SyntaxManager computes this once per parse and answers each keypress with
+/// a binary search here. Collection is a full TreeCursor walk, measured at
+/// ~6ms release on the 13.7k-line src/editor/mod.rs (625 functions); a
+/// tree-sitter Query for the same kinds measured ~10ms on that file, so the
+/// plain walk is the faster collector despite its per-node FFI calls.
 #[derive(Debug, Default)]
 pub struct MethodBoundaries {
     /// (byte, (line, char col)) of each function start.
@@ -426,6 +428,57 @@ class C {
         assert_eq!(
             boundary("t.php", php, 0, MethodBoundary::NextStart, 2),
             Some((3, 4))
+        );
+    }
+
+    // Perf guard in the spirit of render_frame_budget: collection is the
+    // one-time cost after each parse, so it must fit inside a frame budget
+    // on a file the size of src/editor/mod.rs. Opt-in like the render guard:
+    // cargo test method_motion_collect_budget -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn method_motion_collect_budget() {
+        let mut src = String::new();
+        for i in 0..2000 {
+            src.push_str(&format!(
+                "fn f{i}(x: usize) -> usize {{\n    if x > {i} {{\n        x + {i}\n    }} else {{\n        x\n    }}\n}}\n\n"
+            ));
+        }
+        let mut buffer = crate::editor::Buffer::new();
+        buffer.set_content(&src);
+
+        let mut syntax = SyntaxManager::new();
+        syntax.set_language_from_path(Path::new("big.rs"));
+        syntax.parse(&buffer);
+        let (tree, cached) = syntax.get_tree_and_source().expect("tree");
+
+        // Run 1 is the cold pass — the one a user's first `]m` press pays —
+        // so time every run instead of taking a best that hides it.
+        let mut runs = Vec::new();
+        let mut found = 0;
+        for _ in 0..3 {
+            let started = std::time::Instant::now();
+            let boundaries = MethodBoundaries::collect(tree, cached, "rust");
+            runs.push(started.elapsed());
+            found = boundaries.starts.len();
+        }
+        let best = *runs.iter().min().expect("runs");
+        println!(
+            "collect over {} lines: cold {:?}, then {:?} / {:?} ({found} functions)",
+            src.lines().count(),
+            runs[0],
+            runs[1],
+            runs[2],
+        );
+        assert_eq!(found, 2000);
+        // Release must fit the 16ms terminal frame budget (measured ~6ms on
+        // this synthetic and on the real editor/mod.rs); debug builds run
+        // several times slower, so give them the same headroom the render
+        // guard style allows.
+        let budget_ms = if cfg!(debug_assertions) { 120 } else { 16 };
+        assert!(
+            best.as_millis() < budget_ms,
+            "method boundary collection took {best:?}, over the {budget_ms}ms budget"
         );
     }
 
