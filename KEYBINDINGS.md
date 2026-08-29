@@ -231,8 +231,18 @@ When specifying keys, use these formats:
 | `]}` | Move to next unmatched `}` (out of the enclosing block) |
 | `[(` | Move to previous unmatched `(` |
 | `])` | Move to next unmatched `)` |
+| `[m` | Move to previous method/function start |
+| `]m` | Move to next method/function start |
+| `[M` | Move to previous method/function end |
+| `]M` | Move to next method/function end |
 | `(` | Move to previous sentence |
 | `)` | Move to next sentence |
+
+The method motions `[m` `]m` `[M` `]M` jump between tree-sitter function
+boundaries (functions and methods of the current language) instead of using
+Vim's brace-scanning heuristic, so they land on real functions in Rust-style
+code rather than on `if` braces. In files without tree-sitter support they do
+nothing.
 
 ### File Movement
 

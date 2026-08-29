@@ -9,14 +9,14 @@ the test suite enforces, so it cannot drift from what is actually verified.
 
 ## Summary
 
-- **329 keybinds implemented** ([KEYBINDINGS.md](KEYBINDINGS.md)), **39 planned** ([KEYBINDS_ROADMAP.md](KEYBINDS_ROADMAP.md))
-- **78 keybinds in the coverage inventory**, each mapped to the automated test that protects it:
+- **333 keybinds implemented** ([KEYBINDINGS.md](KEYBINDINGS.md)), **35 planned** ([KEYBINDS_ROADMAP.md](KEYBINDS_ROADMAP.md))
+- **82 keybinds in the coverage inventory**, each mapped to the automated test that protects it:
   - 76 verified against real Neovim (v0.11.3) by the Vim oracle
-  - 1 protected by focused Nevi regression tests
+  - 5 protected by focused Nevi regression tests
   - 1 covered as default-keymap plumbing with dedicated tests
 - **233 oracle cases**: motions (113), editing (60), insert-entry (11), open-line (20), replace (27), undo-redo (2)
 - **0 tracked coverage gaps**
-- **108 of 426 documented keybind rows map to an inventoried keybind**; the rest work today but are not yet individually tracked ([full list below](#documented-but-not-yet-inventoried))
+- **112 of 430 documented keybind rows map to an inventoried keybind**; the rest work today but are not yet individually tracked ([full list below](#documented-but-not-yet-inventoried))
 
 ## How the Vim oracle works
 
@@ -119,6 +119,10 @@ Nevi-owned behavior with no Vim equivalent to compare against.
 
 | Keybind | Behavior | Test |
 |---------|----------|----|
+| `]m` | Move to next method/function start (tree-sitter) | `method_motion_jumps_between_function_starts` |
+| `[m` | Move to previous method/function start (tree-sitter) | `method_motion_jumps_between_function_starts` |
+| `]M` | Move to next method/function end (tree-sitter) | `method_motion_ends_land_on_closing_brace` |
+| `[M` | Move to previous method/function end (tree-sitter) | `method_motion_ends_land_on_closing_brace` |
 | `<leader>j` | Start labeled jump navigation | `labeled_jump_jumps_to_selected_visible_match` |
 
 ## Default-keymap plumbing
