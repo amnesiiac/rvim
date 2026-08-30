@@ -4,7 +4,7 @@ Nevi aims for full vim/neovim keybind compatibility. Defaults follow Neovim, and
 keybinds are configurable — sensible defaults out of the box, overridable to your
 own taste.
 
-**Status: 337 keybinds implemented, 90 planned Vim/Neovim parity defaults.**
+**Status: 339 keybinds implemented, 88 planned Vim/Neovim parity defaults.**
 
 This file tracks what's **planned** (not yet implemented). For the full list of
 keybinds that already work, see [KEYBINDINGS.md](KEYBINDINGS.md). This list comes
@@ -30,7 +30,7 @@ ordering leans on the common proxies (vimtutor and cheat-sheet staples, what
 Neovim itself promotes to a default, plugin popularity like vim-unimpaired) and
 on what Nevi users actually ask for in issues — user reports move a key up
 immediately. The keys most hands reach for first: `Ctrl+a` / `Ctrl+x`,
-`Ctrl+e` / `Ctrl+y`, `Ctrl+^`, `ZQ`, the visual-mode operators (`gu` / `gU` /
+`Ctrl+^`, `ZQ`, the visual-mode operators (`gu` / `gU` /
 `g~`, `r`, `J`, `=`), `gq` / `gw`, and among the larger areas, folds and
 quickfix before tabs and tags.
 
@@ -56,8 +56,6 @@ quickfix before tabs and tags.
 
 | Keybind | Planned behavior |
 |---------|------------------|
-| `Ctrl+e` | Scroll the view one line down without moving the cursor |
-| `Ctrl+y` | Scroll the view one line up without moving the cursor |
 | `z<CR>` | Like `zt`, and move the cursor to the first non-blank |
 | `z.` | Like `zz`, and move the cursor to the first non-blank |
 | `z-` | Like `zb`, and move the cursor to the first non-blank |
