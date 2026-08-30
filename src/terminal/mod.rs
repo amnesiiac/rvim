@@ -2176,10 +2176,11 @@ impl Terminal {
             terminal_print!(self, "  "); // Empty sign column
 
             execute!(self.stdout, SetForegroundColor(Color::Blue))?;
+            let eob = editor.ui_glyphs().eob;
             if show_line_numbers {
-                terminal_print!(self, "{:>width$} ~", "", width = line_num_width);
+                terminal_print!(self, "{:>width$} {}", "", eob, width = line_num_width);
             } else {
-                terminal_print!(self, "~");
+                terminal_print!(self, "{}", eob);
             }
             execute!(self.stdout, SetForegroundColor(editor_fg))?;
 
@@ -2594,10 +2595,11 @@ impl Terminal {
                 terminal_print!(self, "  "); // Empty sign column
 
                 execute!(self.stdout, SetForegroundColor(Color::Blue))?;
+                let eob = editor.ui_glyphs().eob;
                 if show_line_numbers {
-                    terminal_print!(self, "{:>width$} ~", "", width = line_num_width);
+                    terminal_print!(self, "{:>width$} {}", "", eob, width = line_num_width);
                 } else {
-                    terminal_print!(self, "~");
+                    terminal_print!(self, "{}", eob);
                 }
                 execute!(
                     self.stdout,
@@ -11610,6 +11612,26 @@ mod tests {
         assert!(
             rendered.contains("\u{f057} 1"),
             "dir and file rows show the error rollup badge; output={rendered:?}"
+        );
+    }
+
+    #[test]
+    fn end_of_buffer_filler_follows_ui_style() {
+        let mut editor = Editor::default();
+        editor.set_size(40, 10);
+        editor.replace_buffer_content("only line\n");
+
+        let rendered = render_editor_to_string(&editor);
+        assert!(
+            !rendered.contains('~'),
+            "rich mode hides end-of-buffer tildes; output={rendered:?}"
+        );
+
+        editor.settings.ui.style = Some(crate::config::UiStyle::Minimal);
+        let rendered = render_editor_to_string(&editor);
+        assert!(
+            rendered.contains('~'),
+            "minimal mode keeps end-of-buffer tildes; output={rendered:?}"
         );
     }
 
