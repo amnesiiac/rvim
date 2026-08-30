@@ -20,6 +20,10 @@
 
 - Macros, named and unnamed registers, global marks, and search history now survive restarts, like Vim's shada. State is stored in `~/.local/state/nevi/state.json`, following nvim's `stdpath('state')` convention, and `$XDG_STATE_HOME` is respected. Macros are saved as readable key notation, so the file can be inspected or hand-edited, and a corrupt file never blocks startup. The frecency database and command history moved to the same directory; data in the old location is found automatically and migrates on its next save.
 
+### Configuration
+
+- Fixed `[ruby]` in `languages.toml` being ignored. Ruby files (`.rb`, `.rake`, `.gemspec`, `.ru`, `.podspec`) resolved to their raw extension instead of the `ruby` key, so formatter and tab width settings never applied. The generated `languages.toml` template now includes a commented Ruby example. (#273)
+
 ## 0.3.0 - 2026-08-25
 
 Nevi 0.3.0 rebuilds the statusline, finder, and explorer, closes a long list of

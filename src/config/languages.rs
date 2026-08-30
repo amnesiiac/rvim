@@ -178,6 +178,16 @@ fn default_languages_template() -> &'static str {
 # tab_width = 4
 
 # ============================================================================
+# RUBY (RuboCop autocorrect)
+# ruby-lsp formats via LSP by default; set this to format with RuboCop directly.
+# --fail-level fatal keeps exit 0 on style offenses (Nevi treats a nonzero
+# exit as failure) while still failing on unparseable code.
+# ============================================================================
+# [ruby]
+# formatter = { command = "rubocop", args = ["--stdin", "{file}", "-a", "--stderr", "--format", "quiet", "--fail-level", "fatal"] }
+# tab_width = 2
+
+# ============================================================================
 # SHELL (shfmt)
 # Install: go install mvdan.cc/sh/v3/cmd/shfmt@latest
 # ============================================================================
