@@ -9,7 +9,7 @@ the test suite enforces, so it cannot drift from what is actually verified.
 
 ## Summary
 
-- **337 keybinds implemented** ([KEYBINDINGS.md](KEYBINDINGS.md)), **90 planned** ([KEYBINDS_ROADMAP.md](KEYBINDS_ROADMAP.md))
+- **339 keybinds implemented** ([KEYBINDINGS.md](KEYBINDINGS.md)), **88 planned** ([KEYBINDS_ROADMAP.md](KEYBINDS_ROADMAP.md))
 - **125 keybinds in the coverage inventory**, each mapped to the automated test that protects it:
   - 117 verified against real Neovim (v0.11.3) by the Vim oracle
   - 7 protected by focused Nevi regression tests
