@@ -237,6 +237,7 @@ const KEYBIND_COVERAGE: &[KeybindCoverage] = &[
         "Toggle case of entire line",
         "toggle case entire line",
     ),
+    vim_oracle(".", "Repeat the last change", "repeat char delete"),
     vim_oracle("J", "Join lines with a space", "join lines with space"),
     vim_oracle(
         "gJ",

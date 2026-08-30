@@ -3,6 +3,7 @@ pub mod commands;
 pub mod config;
 pub mod copilot;
 pub mod dashboard;
+pub mod dot_repeat;
 pub mod editor;
 pub mod explorer;
 pub mod file_diff;

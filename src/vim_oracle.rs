@@ -179,6 +179,18 @@ const MOTION_CASES: &[OracleCase] = &[
         initial_text: "alpha beta gamma\n",
         keys: "w",
     },
+    // Vim stops on the buffer's last character when there is no next word;
+    // this used to snap to column 0 of the last line.
+    OracleCase {
+        name: "word forward at last word of buffer",
+        initial_text: "alpha beta\n",
+        keys: "ww",
+    },
+    OracleCase {
+        name: "big word forward at last word of buffer",
+        initial_text: "alpha beta\n",
+        keys: "WW",
+    },
     OracleCase {
         name: "big word forward",
         initial_text: "alpha.beta gamma\n",
