@@ -49,6 +49,9 @@ pub struct StatusContext<'a> {
     pub lsp_busy: bool,
     /// Current spinner frame (advanced per LSP notification, never a timer).
     pub lsp_spinner: &'a str,
+    /// `[current/total]` search counter, cached on search state — event-driven,
+    /// never counted at render time.
+    pub search_count: Option<(usize, usize)>,
     /// 1-based for display.
     pub line: usize,
     pub col: usize,
@@ -228,6 +231,9 @@ fn build_rich(ctx: &StatusContext, glyphs: &UiGlyphs, theme: &Theme) -> StatusLi
     push_file_markers(&mut left, ctx, glyphs, theme, base_bg, false);
 
     let mut right = Vec::new();
+    if let Some((current, total)) = ctx.search_count {
+        right.push(seg(format!("[{}/{}] ", current, total), base_fg, base_bg));
+    }
     let (errors, warnings) = ctx.diag;
     if errors > 0 {
         right.push(seg(
@@ -292,6 +298,9 @@ fn build_minimal(ctx: &StatusContext, glyphs: &UiGlyphs, theme: &Theme) -> Statu
     push_file_markers(&mut left, ctx, glyphs, theme, bg, true);
 
     let mut right = Vec::new();
+    if let Some((current, total)) = ctx.search_count {
+        right.push(seg(format!("[{}/{}] ", current, total), fg, bg));
+    }
     let (errors, warnings) = ctx.diag;
     if errors > 0 {
         right.push(seg(
@@ -358,6 +367,7 @@ mod tests {
             lsp_attached: true,
             lsp_busy: false,
             lsp_spinner: "",
+            search_count: None,
             line: 128,
             col: 14,
             position: ScrollPosition::Percent(93),
@@ -461,6 +471,20 @@ mod tests {
                 "expected {expect:?} in {:?}",
                 last.text
             );
+        }
+    }
+
+    #[test]
+    fn search_count_renders_in_both_layouts_and_hides_when_absent() {
+        for minimal in [false, true] {
+            let glyphs = UiGlyphs::for_minimal(minimal);
+            let content = build_status_segments(&ctx_base(), glyphs, &theme(), minimal);
+            assert!(!all_text(&content).contains("[3/12]"));
+
+            let mut ctx = ctx_base();
+            ctx.search_count = Some((3, 12));
+            let content = build_status_segments(&ctx, glyphs, &theme(), minimal);
+            assert!(all_text(&content).contains("[3/12]"));
         }
     }
 
