@@ -297,6 +297,7 @@ Nevi tracks where you jump from, so you can navigate back and forth.
 | `Ctrl+o` | Jump to older position |
 | `Ctrl+i` | Jump to newer position |
 | `''` | Jump to the line before the last jump |
+| ``` `` ``` | Jump to the exact position before the last jump |
 | <code>``</code> | Jump to the exact position before the last jump |
 
 ### Change List
@@ -551,6 +552,8 @@ Moving the cursor cancels that restoration and counted replay history.
 | `c` | Change selection |
 | `y` | Yank selection |
 | `p` | Paste over selection |
+| `~` | Toggle case of selection |
+| `u` / `U` | Lowercase / uppercase selection |
 | `o` | Swap to other end of selection |
 | `O` | Swap to other corner in visual block mode |
 | `I` | Insert before the visual block on each selected line |

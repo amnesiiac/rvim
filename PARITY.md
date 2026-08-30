@@ -9,14 +9,14 @@ the test suite enforces, so it cannot drift from what is actually verified.
 
 ## Summary
 
-- **333 keybinds implemented** ([KEYBINDINGS.md](KEYBINDINGS.md)), **35 planned** ([KEYBINDS_ROADMAP.md](KEYBINDS_ROADMAP.md))
+- **337 keybinds implemented** ([KEYBINDINGS.md](KEYBINDINGS.md)), **90 planned** ([KEYBINDS_ROADMAP.md](KEYBINDS_ROADMAP.md))
 - **123 keybinds in the coverage inventory**, each mapped to the automated test that protects it:
   - 115 verified against real Neovim (v0.11.3) by the Vim oracle
   - 7 protected by focused Nevi regression tests
   - 1 covered as default-keymap plumbing with dedicated tests
 - **301 oracle cases**: motions (136), editing (105), insert-entry (11), open-line (20), replace (27), undo-redo (2)
 - **0 tracked coverage gaps**
-- **162 of 432 documented keybind rows map to an inventoried keybind**; the rest work today but are not yet individually tracked ([full list below](#documented-but-not-yet-inventoried))
+- **164 of 435 documented keybind rows map to an inventoried keybind**; the rest work today but are not yet individually tracked ([full list below](#documented-but-not-yet-inventoried))
 
 ## How the Vim oracle works
 
@@ -186,10 +186,11 @@ like `dw` are tracked as single inventory entries, so their building-block
 rows may already be covered compositionally.)
 
 <details>
-<summary>270 untracked rows</summary>
+<summary>271 untracked rows</summary>
 
 | Keybind | Behavior |
 |---------|----------|
+| ``` `` ``` | Jump to the exact position before the last jump |
 | `>` | Indent right |
 | `<` | Indent left |
 | `=` | Auto-indent |

@@ -4,10 +4,13 @@ Nevi aims for full vim/neovim keybind compatibility. Defaults follow Neovim, and
 keybinds are configurable — sensible defaults out of the box, overridable to your
 own taste.
 
-**Status: 333 keybinds implemented, 35 planned Vim/Neovim parity defaults.**
+**Status: 337 keybinds implemented, 90 planned Vim/Neovim parity defaults.**
 
 This file tracks what's **planned** (not yet implemented). For the full list of
-keybinds that already work, see [KEYBINDINGS.md](KEYBINDINGS.md).
+keybinds that already work, see [KEYBINDINGS.md](KEYBINDINGS.md). This list comes
+from a full audit against Vim/Neovim's default keybinds, so an empty roadmap
+means "no known missing default" — if a default is absent from both documents,
+that is a bug in the audit, not a silent omission.
 
 > **Missing a keybind?** If you do not see a keybind you want to use, or you
 > notice one that is missing, please [open an issue](https://github.com/anthonyamaro15/nevi/issues)
@@ -21,6 +24,88 @@ keybinds that already work, see [KEYBINDINGS.md](KEYBINDINGS.md).
 The defaults below should behave like Vim/Neovim out of the box. Users can still
 override them through configuration, but the shipped/default keybind behavior should
 remain Vim-compatible unless Nevi intentionally documents a difference.
+
+**Suggested priority.** There is no usage telemetry for Vim keybinds, so this
+ordering leans on the common proxies (vimtutor and cheat-sheet staples, what
+Neovim itself promotes to a default, plugin popularity like vim-unimpaired) and
+on what Nevi users actually ask for in issues — user reports move a key up
+immediately. The keys most hands reach for first: `Ctrl+a` / `Ctrl+x`,
+`Ctrl+e` / `Ctrl+y`, `Ctrl+^`, `ZQ`, the visual-mode operators (`gu` / `gU` /
+`g~`, `r`, `J`, `=`), `gq` / `gw`, and among the larger areas, folds and
+quickfix before tabs and tags.
+
+### Editing
+
+| Keybind | Planned behavior |
+|---------|------------------|
+| `Ctrl+a` / `{n}Ctrl+a` | Add [count] to the number at or after the cursor |
+| `Ctrl+x` / `{n}Ctrl+x` | Subtract [count] from the number at or after the cursor |
+| `U` | Undo all latest changes on the last changed line |
+| `g-` | Go to older text state (undo over time) |
+| `g+` | Go to newer text state |
+| `gq{motion}` | Format the lines the motion moves over |
+| `gqq` | Format the current line |
+| `gw{motion}` | Format like `gq` but keep the cursor position |
+| `gww` | Format the current line, keeping the cursor position |
+| `]p` | Paste after, adjusting indent to the current line |
+| `[p` | Paste before, adjusting indent to the current line |
+| `&` | Repeat the last `:s` substitution on the current line |
+| `g&` | Repeat the last `:s` on all lines with the same flags |
+
+### Scrolling
+
+| Keybind | Planned behavior |
+|---------|------------------|
+| `Ctrl+e` | Scroll the view one line down without moving the cursor |
+| `Ctrl+y` | Scroll the view one line up without moving the cursor |
+| `z<CR>` | Like `zt`, and move the cursor to the first non-blank |
+| `z.` | Like `zz`, and move the cursor to the first non-blank |
+| `z-` | Like `zb`, and move the cursor to the first non-blank |
+| `zh` / `zl` | Scroll the view one column left / right (no wrap) |
+| `zH` / `zL` | Scroll the view half a screen left / right |
+| `zs` / `ze` | Scroll so the cursor is at the start / end of the screen |
+
+### Search
+
+| Keybind | Planned behavior |
+|---------|------------------|
+| `g*` | Search the word under the cursor without word boundaries |
+| `g#` | Same as `g*`, backward |
+
+### Jumps And Marks
+
+| Keybind | Planned behavior |
+|---------|------------------|
+| `'[` / `']` | Jump to the first / last line of the last change or yank |
+| `` `[ `` / `` `] `` | Jump to the exact start / end of the last change or yank |
+| `'<` / `'>` | Jump to the first / last line of the last visual selection |
+| `` `< `` / `` `> `` | Jump to the exact start / end of the last visual selection |
+
+### Buffers And Quitting
+
+| Keybind | Planned behavior |
+|---------|------------------|
+| `Ctrl+^` | Edit the alternate (previously edited) buffer |
+| `ZQ` | Quit without saving (like `:q!`) |
+| `[b` / `]b` | Go to the previous / next buffer (Neovim default) |
+| `[<Space>` / `]<Space>` | Add an empty line above / below the cursor (Neovim default) |
+
+### Visual Mode
+
+| Keybind | Planned behavior |
+|---------|------------------|
+| `gu` / `gU` / `g~` | Lowercase / uppercase / toggle case of the selection (the `~`, `u`, `U` forms already work) |
+| `r{char}` | Replace every selected character with {char} |
+| `J` / `gJ` | Join the selected lines, with / without spaces |
+| `=` | Re-indent the selection |
+
+### Insert Mode
+
+| Keybind | Planned behavior |
+|---------|------------------|
+| `Ctrl+e` | Insert the character from the line below the cursor |
+| `Ctrl+y` | Insert the character from the line above the cursor |
+| `Ctrl+v` | Insert the next character literally (or by decimal/hex code) |
 
 ### Command-Line Mode Defaults
 
@@ -43,7 +128,36 @@ infrastructure rather than just a key handler.
 | Folds | `za`, `zo`, `zc`, `zO`, `zC`, `zM`, `zR`, `zf`, `zd`, `zE`, `zj`, `zk` |
 | Tags / tag stack | `Ctrl+]`, `Ctrl+t`, `:tag`, `:tags` |
 | Quickfix-style lists | `:copen`, `:cclose`, `:cnext`, `:cprev`, `[q`, `]q` |
+| Spell checking | `[s`, `]s`, `z=`, `zg`, `zw` (needs a spell engine) |
 | Introspection commands | `:jumps`, `:registers`, `:history` |
+
+---
+
+## Deliberate Deviations
+
+These keys exist in Nevi but intentionally do something different from stock
+Vim/Neovim. They are not planned for change; they are documented so the
+difference is a decision, not an accident.
+
+| Keybind | Nevi behavior | Stock Vim behavior |
+|---------|---------------|--------------------|
+| `]m` `[m` `]M` `[M` | Tree-sitter function boundaries | Brace-scanning heuristic that misfires in Rust-style code |
+| `gI` | LSP go-to-implementation | Insert at column 1 |
+| `S{char}` (visual) | Surround the selection | Substitute the selected lines |
+| `gd` / `gr` | LSP definition / references | Local declaration / none |
+| `Ctrl+n` / `Ctrl+p` (insert) | Navigate the completion popup | Keyword completion |
+
+## Niche Defaults, Noted But Not Planned
+
+Audited and deliberately left off the planned list. If your hands actually
+reach for one of these, open an issue and it moves up.
+
+`g?{motion}` / `g??` (ROT13), `ga` (char value), `g8` (UTF-8 bytes), `gF`
+(open file at line number), `['` / `]'` / `` [` `` / `` ]` `` (previous/next
+lowercase mark), `Ctrl+k` digraphs (insert), the `Ctrl+x` completion sub-mode
+(insert; LSP completion covers this), operator-forced motions (`dvj`, `dVj`),
+and Neovim 0.11's `gri`/`grn`/`grr`/`gra`/`gO` LSP maps (covered by Nevi's own
+LSP keys above).
 
 ---
 
