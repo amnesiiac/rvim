@@ -93,6 +93,60 @@ const KEYBIND_COVERAGE: &[KeybindCoverage] = &[
         "Move to previous method/function end (tree-sitter)",
         "method_motion_ends_land_on_closing_brace",
     ),
+    // Motions, marks, and jump/change-list batch.
+    vim_oracle("{", "Move to previous paragraph", "paragraph backward"),
+    vim_oracle("}", "Move to next paragraph", "paragraph forward"),
+    vim_oracle("(", "Move to previous sentence", "sentence backward"),
+    vim_oracle(")", "Move to next sentence", "sentence forward"),
+    vim_oracle(
+        "-",
+        "Move to first non-blank of previous line",
+        "first non blank of previous line",
+    ),
+    vim_oracle("{n}G", "Move to line n", "goto line with count"),
+    vim_oracle("{n}go", "Go to byte n of the file", "go to byte"),
+    vim_oracle("m{a-z}", "Set local mark", "jump to mark line"),
+    vim_oracle("'{a-z}", "Jump to line of local mark", "jump to mark line"),
+    vim_oracle(
+        "<C-o>",
+        "Jump to older position",
+        "jump list older position",
+    ),
+    vim_oracle(
+        "<C-i>",
+        "Jump to newer position",
+        "jump list newer position",
+    ),
+    vim_oracle(
+        "''",
+        "Jump to the line before the last jump",
+        "jump back to line before last jump",
+    ),
+    vim_oracle(
+        "g;",
+        "Jump to older change position",
+        "older change position",
+    ),
+    vim_oracle(
+        "g,",
+        "Jump to newer change position",
+        "newer change position",
+    ),
+    vim_oracle(
+        "'.",
+        "Jump to the line of the last change",
+        "line of last change",
+    ),
+    vim_oracle(
+        "'^",
+        "Jump to the line of the last insert",
+        "line of last insert",
+    ),
+    vim_oracle(
+        "gi",
+        "Go to last insert position and enter insert mode",
+        "go to last insert position and insert",
+    ),
     vim_oracle(
         "gm",
         "Move to middle of the screen line",

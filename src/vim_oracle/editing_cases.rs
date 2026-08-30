@@ -476,6 +476,12 @@ pub(super) const EDITING_CASES: &[OracleCase] = &[
         initial_text: "abc def\n",
         keys: "xww.",
     },
+    // gi returns to where insert mode last stopped and resumes inserting.
+    OracleCase {
+        name: "go to last insert position and insert",
+        initial_text: "alpha\nbeta\n",
+        keys: "jA!<Esc>gggix<Esc>",
+    },
     // Plain joins (the last-line no-op pins above cover the boundary).
     OracleCase {
         name: "join lines with space",

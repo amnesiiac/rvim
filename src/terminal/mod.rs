@@ -7632,11 +7632,16 @@ fn handle_normal_mode(editor: &mut Editor, key: KeyEvent) {
 
         KeyAction::GotoLastInsert => {
             if let Some((line, col)) = editor.last_insert_position {
-                editor.cursor.line = line;
-                editor.cursor.col = col;
-                editor.clamp_cursor();
-                editor.scroll_to_cursor();
                 editor.enter_insert_mode();
+                if editor.mode == Mode::Insert {
+                    // Clamp with insert-mode rules: the stored column may be
+                    // one past the line's last character (e.g. after `A`),
+                    // which normal-mode clamping would pull back.
+                    let max_line = editor.buffer().addressable_line_count().saturating_sub(1);
+                    editor.cursor.line = line.min(max_line);
+                    editor.cursor.col = col.min(editor.buffer().line_len(editor.cursor.line));
+                    editor.scroll_to_cursor();
+                }
             } else {
                 editor.set_status("No previous insert position");
             }

@@ -10,13 +10,13 @@ the test suite enforces, so it cannot drift from what is actually verified.
 ## Summary
 
 - **333 keybinds implemented** ([KEYBINDINGS.md](KEYBINDINGS.md)), **35 planned** ([KEYBINDS_ROADMAP.md](KEYBINDS_ROADMAP.md))
-- **106 keybinds in the coverage inventory**, each mapped to the automated test that protects it:
-  - 98 verified against real Neovim (v0.11.3) by the Vim oracle
+- **123 keybinds in the coverage inventory**, each mapped to the automated test that protects it:
+  - 115 verified against real Neovim (v0.11.3) by the Vim oracle
   - 7 protected by focused Nevi regression tests
   - 1 covered as default-keymap plumbing with dedicated tests
-- **279 oracle cases**: motions (115), editing (104), insert-entry (11), open-line (20), replace (27), undo-redo (2)
+- **301 oracle cases**: motions (136), editing (105), insert-entry (11), open-line (20), replace (27), undo-redo (2)
 - **0 tracked coverage gaps**
-- **142 of 432 documented keybind rows map to an inventoried keybind**; the rest work today but are not yet individually tracked ([full list below](#documented-but-not-yet-inventoried))
+- **162 of 432 documented keybind rows map to an inventoried keybind**; the rest work today but are not yet individually tracked ([full list below](#documented-but-not-yet-inventoried))
 
 ## How the Vim oracle works
 
@@ -57,6 +57,23 @@ claim protection.
 | `]}` | Move to next unmatched } | `unmatched close brace` |
 | `[(` | Move to previous unmatched ( | `unmatched open paren skips nested pair` |
 | `])` | Move to next unmatched ) | `unmatched close paren skips nested pair` |
+| `{` | Move to previous paragraph | `paragraph backward` |
+| `}` | Move to next paragraph | `paragraph forward` |
+| `(` | Move to previous sentence | `sentence backward` |
+| `)` | Move to next sentence | `sentence forward` |
+| `-` | Move to first non-blank of previous line | `first non blank of previous line` |
+| `{n}G` | Move to line n | `goto line with count` |
+| `{n}go` | Go to byte n of the file | `go to byte` |
+| `m{a-z}` | Set local mark | `jump to mark line` |
+| `'{a-z}` | Jump to line of local mark | `jump to mark line` |
+| `<C-o>` | Jump to older position | `jump list older position` |
+| `<C-i>` | Jump to newer position | `jump list newer position` |
+| `''` | Jump to the line before the last jump | `jump back to line before last jump` |
+| `g;` | Jump to older change position | `older change position` |
+| `g,` | Jump to newer change position | `newer change position` |
+| `'.` | Jump to the line of the last change | `line of last change` |
+| `'^` | Jump to the line of the last insert | `line of last insert` |
+| `gi` | Go to last insert position and enter insert mode | `go to last insert position and insert` |
 | `gm` | Move to middle of the screen line | `gm on short line` |
 | `go` | Go to [count] byte of the buffer | `go to byte` |
 | `gj` | Move down by display line | `display line down without wrap` |
@@ -169,25 +186,10 @@ like `dw` are tracked as single inventory entries, so their building-block
 rows may already be covered compositionally.)
 
 <details>
-<summary>290 untracked rows</summary>
+<summary>270 untracked rows</summary>
 
 | Keybind | Behavior |
 |---------|----------|
-| `-` | Move to first non-blank of previous line |
-| `{` | Move to previous blank line (paragraph) |
-| `}` | Move to next blank line (paragraph) |
-| `(` | Move to previous sentence |
-| `)` | Move to next sentence |
-| `{n}G` | Move to line n (e.g., `50G` goes to line 50) |
-| `{n}go` | Go to byte n of the file |
-| `Ctrl+o` | Jump to older position |
-| `Ctrl+i` | Jump to newer position |
-| `''` | Jump to the line before the last jump |
-| `g;` | Jump to older change position |
-| `g,` | Jump to newer change position |
-| `'.` | Jump to the line of the last change |
-| `'^` | Jump to the line of the last insert |
-| `gi` | Go to last insert position and enter insert mode |
 | `>` | Indent right |
 | `<` | Indent left |
 | `=` | Auto-indent |
@@ -213,9 +215,7 @@ rows may already be covered compositionally.)
 | `Ctrl+r {reg}` | Insert register contents |
 | `Up` | Navigate to previous search history entry |
 | `Down` | Navigate to next search history entry |
-| `m{a-z}` | Set local mark (buffer-specific) |
 | `m{A-Z}` | Set global mark (works across files) |
-| `'{a-z}` | Jump to line of local mark |
 | `` `{a-z} `` | Jump to exact position of local mark |
 | `'{A-Z}` | Jump to line of global mark |
 | `` `{A-Z} `` | Jump to exact position of global mark |
@@ -226,14 +226,12 @@ rows may already be covered compositionally.)
 | `{n}@{a-z}` | Play macro n times |
 | `:Macros` | Open all recorded macros as notation in a read-only `[macros]` buffer |
 | `:MacroEdit {a-z}` | Edit one register's notation in a `[macro-{register}]` scratch buffer; `:w` applies it back to the register (empty content clears it) |
-| `gi` | Go to last insert position and enter insert mode |
 | `Esc` or `Ctrl+[` | Exit insert mode |
 | `Backspace` | Delete character before cursor |
 | `Ctrl+w` | Delete word before cursor |
 | `Ctrl+t` | Increase indent of current line |
 | `Ctrl+a` | Insert previously inserted text |
 | `Ctrl+r {reg}` | Insert contents of register |
-| `Ctrl+o` | Run one normal-mode command, then return to insert |
 | `Ctrl+l` | Accept visible Copilot suggestion |
 | `Alt+]` | Next visible Copilot suggestion |
 | `Alt+[` | Previous visible Copilot suggestion |
@@ -367,7 +365,6 @@ rows may already be covered compositionally.)
 | `Esc` / `Ctrl+[` / `q` | Close explorer |
 | `Tab` | Toggle expand/collapse |
 | `?` | Show explorer keymaps |
-| `-` | Go to parent directory |
 | `Ctrl+l` | Focus editor and keep explorer open |
 | `>` | Widen explorer sidebar |
 | `<` | Narrow explorer sidebar |

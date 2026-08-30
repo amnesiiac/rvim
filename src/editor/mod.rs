@@ -5514,9 +5514,14 @@ impl Editor {
     /// Exit to normal mode
     pub fn enter_normal_mode(&mut self) {
         if self.mode == Mode::Insert {
+            // Vim's `^` mark: where insert STOPPED, captured before the Esc
+            // cursor shift so gi resumes typing at exactly that spot (the
+            // column may be one past the last character).
+            self.last_insert_position = Some((self.cursor.line, self.cursor.col));
             self.replay_pending_visual_block_edit();
             self.finish_insert_session();
         } else if self.mode == Mode::Replace {
+            self.last_insert_position = Some((self.cursor.line, self.cursor.col));
             self.finish_replace_session();
         }
 
