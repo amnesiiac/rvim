@@ -714,6 +714,115 @@ const MOTION_CASES: &[OracleCase] = &[
         initial_text: "alpha\nbeta\n",
         keys: "99go",
     },
+    // Paragraph, sentence, and previous-line motions.
+    OracleCase {
+        name: "paragraph forward",
+        initial_text: "one\ntwo\n\nthree\nfour\n\nfive\n",
+        keys: "}",
+    },
+    OracleCase {
+        name: "counted paragraph forward",
+        initial_text: "one\ntwo\n\nthree\nfour\n\nfive\n",
+        keys: "2}",
+    },
+    OracleCase {
+        name: "paragraph backward",
+        initial_text: "one\ntwo\n\nthree\nfour\n\nfive\n",
+        keys: "G{",
+    },
+    OracleCase {
+        name: "counted paragraph backward",
+        initial_text: "one\ntwo\n\nthree\nfour\n\nfive\n",
+        keys: "G2{",
+    },
+    OracleCase {
+        name: "sentence forward",
+        initial_text: "One two. Three four. Five six.\n",
+        keys: ")",
+    },
+    OracleCase {
+        name: "counted sentence forward",
+        initial_text: "One two. Three four. Five six.\n",
+        keys: "2)",
+    },
+    OracleCase {
+        name: "sentence backward",
+        initial_text: "One two. Three four. Five six.\n",
+        keys: "$(",
+    },
+    OracleCase {
+        name: "counted sentence backward",
+        initial_text: "One two. Three four. Five six.\n",
+        keys: "$2(",
+    },
+    OracleCase {
+        name: "first non blank of previous line",
+        initial_text: "  one\n    two\n  three\n",
+        keys: "G-",
+    },
+    OracleCase {
+        name: "counted first non blank of previous line",
+        initial_text: "  one\n    two\n  three\n",
+        keys: "G2-",
+    },
+    OracleCase {
+        name: "goto line with count",
+        initial_text: "a\n  b\nc\nd\ne\n",
+        keys: "2G",
+    },
+    OracleCase {
+        name: "goto line beyond end clamps",
+        initial_text: "a\nb\nc\n",
+        keys: "9G",
+    },
+    // Local marks: ' jumps to the line's first non-blank, backtick to the
+    // exact column.
+    OracleCase {
+        name: "jump to mark line",
+        initial_text: "alpha\n  beta\ngamma\n",
+        keys: "jllmagg'a",
+    },
+    OracleCase {
+        name: "jump to mark exact position",
+        initial_text: "alpha\n  beta\ngamma\n",
+        keys: "jllmagg`a",
+    },
+    // Jump and change lists.
+    OracleCase {
+        name: "jump back to line before last jump",
+        initial_text: "one\ntwo\nthree\nfour\n",
+        keys: "jG''",
+    },
+    OracleCase {
+        name: "jump list older position",
+        initial_text: "one\ntwo\nthree\nfour\n",
+        keys: "G<C-o>",
+    },
+    OracleCase {
+        name: "jump list newer position",
+        initial_text: "one\ntwo\nthree\nfour\n",
+        keys: "G<C-o><C-i>",
+    },
+    OracleCase {
+        name: "older change position",
+        initial_text: "one\ntwo\nthree\n",
+        keys: "xjxggg;",
+    },
+    OracleCase {
+        name: "newer change position",
+        initial_text: "one\ntwo\nthree\n",
+        keys: "xjxggg;g;g,",
+    },
+    OracleCase {
+        name: "line of last change",
+        initial_text: "alpha\n  beta\ngamma\n",
+        keys: "jxgg'.",
+    },
+    OracleCase {
+        name: "line of last insert",
+        initial_text: "alpha\n  beta\ngamma\n",
+        keys: "jA!<Esc>gg'^",
+    },
     // Display-line motions with wrap off fall back to their file-line
     // equivalents (gj≈j, g0≈0, g$≈$, g^≈^), which is also Vim's behavior.
     // Wrapped-segment landings can't be oracle-compared (Nevi's text area

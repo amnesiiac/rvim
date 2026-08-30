@@ -539,11 +539,9 @@ pub fn apply_motion(
                 // Move back one line to start
                 l = l.saturating_sub(1);
 
-                // Skip current blank lines
-                while l > 0 && is_blank_line(buffer, l) {
-                    l -= 1;
-                }
-                // Skip non-blank lines until we find a blank line
+                // Vim stops at the first blank line above the cursor: if the
+                // line immediately above is blank, that IS the boundary.
+                // Only non-blank lines are skipped on the way up.
                 while l > 0 && !is_blank_line(buffer, l) {
                     l -= 1;
                 }

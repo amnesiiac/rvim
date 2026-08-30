@@ -8,6 +8,9 @@
 - Added the method motions `[m`, `]m`, `[M`, and `]M`. They jump between tree-sitter function boundaries instead of using Vim's brace heuristic, so they land on real functions and methods in Rust-style code. They work with operators (`d]m`, `y[m`) and counts, and do nothing in files without tree-sitter support.
 - Added dot repeat. `.` replays the last change at the cursor: operators with motions, character edits, insert sessions with their typed text, joins, pastes, and replace mode. A count replaces the change's original count (`3.`), the new count is remembered for the next repeat, and one `u` reverts a whole repeated change. Changes made through visual mode are not repeated yet.
 - Fixed `w` and `W` at the last word of the buffer. They jumped to column 0 of the last line instead of stopping on the buffer's last character, and `dw` there deleted one character short of the word end.
+- Extended Vim oracle coverage to paragraph and sentence motions, counted `G`, `-`, local marks, the jump and change lists (`Ctrl+o`, `Ctrl+i`, `''`, `g;`, `g,`, `'.`, `'^`), and `gi`, all now individually tracked in `PARITY.md`.
+- Fixed `{` overshooting: from inside a paragraph it jumped past the blank line directly above to an earlier one. It now stops at the nearest blank line, as in Vim.
+- Fixed `gi` resuming insert one column left of where the last insert session stopped. It now continues exactly where typing ended, including after `A` at the end of a line.
 - Fixed `~` to advance the cursor past the last toggled character, as in Vim.
 - Extended Vim oracle coverage to the editing core: the case operators (`gu`, `gU`, `g~` and their line forms), `~`, `X`, `s`, `S`, `gp`, `gP`, `J`, and `gJ` are now verified against real Neovim and individually tracked in `PARITY.md`.
 - Corrected the docs: `.` (repeat last change) was listed as implemented but only shows a status note today. It moved to the roadmap.
