@@ -1120,6 +1120,9 @@ pub struct Editor {
     pub pending_visual_block_edit: Option<VisualBlockEdit>,
     /// Macro recording and playback state
     pub macros: MacroState,
+    /// Dot repeat (`.`): the last change's key sequence, captured in the
+    /// key dispatcher and replayed like a one-shot macro.
+    pub dot_repeat: crate::dot_repeat::DotRepeat,
     /// Last insert position for `gi` command (line, col)
     pub last_insert_position: Option<(usize, usize)>,
     /// Text inserted during the most recently completed insert session.
@@ -1629,6 +1632,7 @@ impl Editor {
             last_visual_selection: None,
             pending_visual_block_edit: None,
             macros: MacroState::new(),
+            dot_repeat: crate::dot_repeat::DotRepeat::default(),
             last_insert_position: None,
             last_inserted_text: None,
             current_inserted_text: String::new(),
@@ -10293,13 +10297,6 @@ impl Editor {
     }
 
     /// Repeat last change (. command)
-    /// Note: Full implementation would store last command sequence.
-    /// For now, this is a placeholder that shows a message.
-    pub fn repeat_last_change(&mut self) {
-        // TODO: Implement proper repeat functionality
-        // This requires storing the last change sequence (keys or operations)
-        self.set_status(". (repeat) not fully implemented yet");
-    }
 
     /// Apply motion with screen-relative awareness
     /// This overrides basic motion for H, M, L which need viewport info
@@ -11484,7 +11481,28 @@ impl Editor {
         }
 
         let forward = (target_line, target_col) >= (self.cursor.line, self.cursor.col);
-        let inclusive = forward && Self::motion_is_inclusive(motion);
+        let mut inclusive = forward && Self::motion_is_inclusive(motion);
+
+        // :h w special case: an operator with `w` on the last word of the
+        // buffer operates through the end of that word. The motion itself
+        // clamps to the buffer's last character; treat that as inclusive,
+        // but only when no whitespace separates cursor and target (a real
+        // landing on a short final word stays exclusive).
+        if matches!(motion, Motion::WordForward | Motion::BigWordForward)
+            && target_line == self.cursor.line
+        {
+            let buffer = &self.buffers[self.current_buffer_idx];
+            let last_line = last_addressable_line(buffer);
+            let last_col = buffer.line_len(last_line).saturating_sub(1);
+            let crossed_whitespace = (self.cursor.col..=target_col).any(|c| {
+                buffer
+                    .char_at(target_line, c)
+                    .is_some_and(char::is_whitespace)
+            });
+            if (target_line, target_col) == (last_line, last_col) && !crossed_whitespace {
+                inclusive = true;
+            }
+        }
 
         let (start_line, start_col, mut end_line, mut end_col) =
             if (target_line, target_col) < (self.cursor.line, self.cursor.col) {

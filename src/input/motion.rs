@@ -894,13 +894,20 @@ fn find_word_forward(
     let mut c = col;
     let total_lines = buffer.addressable_line_count();
 
+    // Vim `w` with no next word stops on the buffer's LAST character
+    // (:h w), never at column 0 of the last line.
+    let end_of_buffer = {
+        let last_line = total_lines.saturating_sub(1);
+        (last_line, buffer.line_len(last_line).saturating_sub(1))
+    };
+
     // Get current character class
     let start_class = buffer.char_at(l, c).map(|ch| classify_char(ch));
 
     // Phase 1: Move past current word (same class characters)
     loop {
         if l >= total_lines {
-            return Some((total_lines.saturating_sub(1), 0));
+            return Some(end_of_buffer);
         }
 
         let line_len = buffer.line_len(l);
@@ -938,7 +945,7 @@ fn find_word_forward(
     // Phase 2: Skip whitespace
     loop {
         if l >= total_lines {
-            return Some((total_lines.saturating_sub(1), 0));
+            return Some(end_of_buffer);
         }
 
         let line_len = buffer.line_len(l);
@@ -963,8 +970,7 @@ fn find_word_forward(
 
     // Clamp to valid position
     if l >= total_lines {
-        l = total_lines.saturating_sub(1);
-        c = 0;
+        return Some(end_of_buffer);
     }
 
     Some((l, c))

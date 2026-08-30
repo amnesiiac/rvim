@@ -9,14 +9,14 @@ the test suite enforces, so it cannot drift from what is actually verified.
 
 ## Summary
 
-- **332 keybinds implemented** ([KEYBINDINGS.md](KEYBINDINGS.md)), **36 planned** ([KEYBINDS_ROADMAP.md](KEYBINDS_ROADMAP.md))
-- **105 keybinds in the coverage inventory**, each mapped to the automated test that protects it:
-  - 97 verified against real Neovim (v0.11.3) by the Vim oracle
+- **333 keybinds implemented** ([KEYBINDINGS.md](KEYBINDINGS.md)), **35 planned** ([KEYBINDS_ROADMAP.md](KEYBINDS_ROADMAP.md))
+- **106 keybinds in the coverage inventory**, each mapped to the automated test that protects it:
+  - 98 verified against real Neovim (v0.11.3) by the Vim oracle
   - 7 protected by focused Nevi regression tests
   - 1 covered as default-keymap plumbing with dedicated tests
-- **259 oracle cases**: motions (113), editing (86), insert-entry (11), open-line (20), replace (27), undo-redo (2)
+- **279 oracle cases**: motions (115), editing (104), insert-entry (11), open-line (20), replace (27), undo-redo (2)
 - **0 tracked coverage gaps**
-- **141 of 431 documented keybind rows map to an inventoried keybind**; the rest work today but are not yet individually tracked ([full list below](#documented-but-not-yet-inventoried))
+- **142 of 432 documented keybind rows map to an inventoried keybind**; the rest work today but are not yet individually tracked ([full list below](#documented-but-not-yet-inventoried))
 
 ## How the Vim oracle works
 
@@ -107,6 +107,7 @@ claim protection.
 | `gUU` | Uppercase entire line | `uppercase entire line` |
 | `g~{motion}` | Toggle case with a motion | `toggle case to word end` |
 | `g~~` | Toggle case of entire line | `toggle case entire line` |
+| `.` | Repeat the last change | `repeat char delete` |
 | `J` | Join lines with a space | `join lines with space` |
 | `gJ` | Join lines without a space | `join without added space` |
 | `u` | Undo latest change | `undo insert` |

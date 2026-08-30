@@ -6803,6 +6803,32 @@ fn handle_markdown_preview_key(editor: &mut Editor, key: KeyEvent) {
     }
 }
 
+/// Repeat the last change (`.`) by replaying its keys, like Vim's redobuff.
+fn repeat_last_change(editor: &mut Editor, count: Option<usize>) {
+    // The `.` keystroke (and its count) is sitting in the capture candidate;
+    // it must never become the recorded change itself.
+    editor.dot_repeat.abandon_candidate();
+
+    let Some(keys) = editor.dot_repeat.take_replay_keys(count) else {
+        editor.set_status("No change to repeat");
+        return;
+    };
+
+    // One compound undo group so a single `u` reverts the whole repeat,
+    // matching Vim and the macro playback path.
+    editor
+        .undo_stack
+        .begin_compound_group(editor.cursor.line, editor.cursor.col);
+    editor.dot_repeat.begin_replay();
+    for key in keys {
+        handle_key(editor, key);
+    }
+    editor.dot_repeat.end_replay();
+    editor
+        .undo_stack
+        .end_compound_group(editor.cursor.line, editor.cursor.col);
+}
+
 /// Play a macro from a register
 fn play_macro(editor: &mut Editor, register: char, count: usize) {
     // Get the macro keys (clone to avoid borrow issues)
@@ -7285,6 +7311,19 @@ pub fn handle_key(editor: &mut Editor, key: KeyEvent) {
         editor.macros.record_key(key);
     }
 
+    // Dot repeat: settle the previous key sequence (commit it as the last
+    // change if it modified the buffer) and record this key as part of the
+    // next candidate. Must read the PRE-key state, so it runs before mode
+    // dispatch; overlay keys never get here because of the returns above.
+    {
+        let mode = editor.mode;
+        let pending = editor.input_state.has_pending_sequence();
+        let version = editor.buffer().version();
+        editor
+            .dot_repeat
+            .observe(mode, pending, version, editor.current_buffer_index(), key);
+    }
+
     if editor.pending_insert_normal_once && editor.mode == Mode::Normal {
         handle_normal_mode(editor, key);
         if !editor.input_state.has_pending_sequence() {
@@ -7737,8 +7776,8 @@ fn handle_normal_mode(editor: &mut Editor, key: KeyEvent) {
             editor.scroll_cursor_bottom();
         }
 
-        KeyAction::RepeatLastChange => {
-            editor.repeat_last_change();
+        KeyAction::RepeatLastChange(count) => {
+            repeat_last_change(editor, count);
         }
 
         KeyAction::EnterCommand => {

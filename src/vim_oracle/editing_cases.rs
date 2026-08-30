@@ -382,6 +382,100 @@ pub(super) const EDITING_CASES: &[OracleCase] = &[
         initial_text: "one\ntwo\nthree\nfour\n",
         keys: "2Sx<Esc>",
     },
+    // :h w special case: dw on the buffer's last word deletes through the
+    // end of that word; landing on a real final word stays exclusive.
+    OracleCase {
+        name: "delete word on last word of buffer",
+        initial_text: "one two three\n",
+        keys: "wwdw",
+    },
+    OracleCase {
+        name: "delete word landing on short final word",
+        initial_text: "one x\n",
+        keys: "dw",
+    },
+    // Dot repeat: `.` replays the last change at the current cursor
+    // position, with a typed count replacing the change's own count.
+    OracleCase {
+        name: "repeat char delete",
+        initial_text: "abcdef\n",
+        keys: "xl.",
+    },
+    OracleCase {
+        name: "repeat delete word",
+        initial_text: "one two three\n",
+        keys: "dww.",
+    },
+    OracleCase {
+        name: "repeat insert",
+        initial_text: "alpha\nbeta\n",
+        keys: "ihi <Esc>j0.",
+    },
+    OracleCase {
+        name: "repeat change word",
+        initial_text: "one two\nthree four\n",
+        keys: "cwX<Esc>j0.",
+    },
+    OracleCase {
+        name: "repeat with count override",
+        initial_text: "abcdef\n",
+        keys: "x3.",
+    },
+    OracleCase {
+        name: "repeat keeps original count",
+        initial_text: "abcdefgh\n",
+        keys: "2x.",
+    },
+    OracleCase {
+        name: "repeat remembers overridden count",
+        initial_text: "abcdefghij\n",
+        keys: "x3..",
+    },
+    OracleCase {
+        name: "repeat open line below",
+        initial_text: "alpha\n",
+        keys: "oX<Esc>.",
+    },
+    OracleCase {
+        name: "repeat after undo",
+        initial_text: "ab\n",
+        keys: "xu.",
+    },
+    OracleCase {
+        name: "repeat paste",
+        initial_text: "abc\n",
+        keys: "ylp.",
+    },
+    OracleCase {
+        name: "repeat toggle case",
+        initial_text: "hello\n",
+        keys: "~.",
+    },
+    OracleCase {
+        name: "repeat replace char",
+        initial_text: "abcd\n",
+        keys: "rXl.",
+    },
+    OracleCase {
+        name: "repeat join",
+        initial_text: "a\nb\nc\nd\n",
+        keys: "J.",
+    },
+    OracleCase {
+        name: "repeat substitute",
+        initial_text: "abc def\n",
+        keys: "sX<Esc>w.",
+    },
+    OracleCase {
+        name: "undo reverts whole repeated insert",
+        initial_text: "alpha\n",
+        keys: "ohi<Esc>.u",
+    },
+    OracleCase {
+        name: "motion between change and repeat is not recorded",
+        initial_text: "abc def\n",
+        keys: "xww.",
+    },
     // Plain joins (the last-line no-op pins above cover the boundary).
     OracleCase {
         name: "join lines with space",

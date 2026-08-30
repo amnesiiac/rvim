@@ -161,8 +161,9 @@ pub enum KeyAction {
     ScrollTop,
     /// Scroll cursor to bottom of screen (zb)
     ScrollBottom,
-    /// Repeat last change (.)
-    RepeatLastChange,
+    /// Repeat last change (.). Carries the typed count, if any: Vim treats
+    /// an explicit count (even `1.`) as replacing the change's own count.
+    RepeatLastChange(Option<usize>),
     /// Paste after cursor
     PasteAfter(usize),
     /// Paste before cursor
@@ -1116,9 +1117,10 @@ impl InputState {
                 KeyAction::Hover
             }
             (KeyModifiers::NONE, KeyCode::Char('.')) => {
-                // . - repeat last change
+                // . - repeat last change (count captured before reset clears it)
+                let typed_count = self.count;
                 self.reset();
-                KeyAction::RepeatLastChange
+                KeyAction::RepeatLastChange(typed_count)
             }
             (KeyModifiers::SHIFT, KeyCode::Char('~'))
             | (KeyModifiers::NONE, KeyCode::Char('~')) => {
@@ -2488,8 +2490,12 @@ mod tests {
             other => panic!("expected counted newline ReplaceChar, got {:?}", other),
         }
         match run(&[key('.')]) {
-            KeyAction::RepeatLastChange => {}
+            KeyAction::RepeatLastChange(None) => {}
             other => panic!("expected RepeatLastChange, got {:?}", other),
+        }
+        match run(&[key('3'), key('.')]) {
+            KeyAction::RepeatLastChange(Some(3)) => {}
+            other => panic!("expected counted RepeatLastChange, got {:?}", other),
         }
         match run(&[key('u')]) {
             KeyAction::Undo => {}
