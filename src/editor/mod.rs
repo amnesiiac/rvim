@@ -345,6 +345,9 @@ pub struct SearchState {
     pub saved_input: Option<String>,
     /// Waiting for a register name after search prompt Ctrl+r
     pub pending_register: bool,
+    /// `[current/total]` counter for the statusline, recomputed on search
+    /// jumps (/, ?, n, N, *, #) — never counted during render.
+    pub match_stats: Option<(usize, usize)>,
 }
 
 impl SearchState {
@@ -355,6 +358,7 @@ impl SearchState {
         self.history_index = None;
         self.saved_input = None;
         self.pending_register = false;
+        self.match_stats = None;
     }
 
     /// Start a new search
@@ -365,6 +369,7 @@ impl SearchState {
         self.history_index = None;
         self.saved_input = None;
         self.pending_register = false;
+        self.match_stats = None;
     }
 
     /// Insert a character at cursor (cursor is character index, not byte index)
@@ -6728,7 +6733,10 @@ impl Editor {
 
     /// Clear search highlights (called on non-search movement)
     pub fn clear_search_highlights(&mut self) {
-        if !self.search_matches.is_empty() {
+        // The counter shares the highlight lifecycle, and matches can all be
+        // off-screen (empty visible list) while the counter is still shown.
+        let had_stats = self.search.match_stats.take().is_some();
+        if !self.search_matches.is_empty() || had_stats {
             self.search_matches.clear();
             self.render_damage.mark_full();
         }
@@ -6766,8 +6774,10 @@ impl Editor {
                 || self.do_search(&pattern, direction, true)
             {
                 self.refresh_visible_search_matches(&pattern);
+                self.update_search_match_stats(&pattern);
             } else {
                 self.search_matches.clear();
+                self.search.match_stats = None;
                 self.set_status(format!("Pattern not found: {}", pattern));
             }
         } else {
@@ -6785,8 +6795,10 @@ impl Editor {
             let direction = self.search.last_direction;
             if self.do_search(&pattern, direction, true) {
                 self.refresh_visible_search_matches(&pattern);
+                self.update_search_match_stats(&pattern);
             } else {
                 self.search_matches.clear();
+                self.search.match_stats = None;
                 self.set_status(format!("Pattern not found: {}", pattern));
             }
         } else {
@@ -6807,12 +6819,52 @@ impl Editor {
             };
             if self.do_search(&pattern, direction, true) {
                 self.refresh_visible_search_matches(&pattern);
+                self.update_search_match_stats(&pattern);
             } else {
                 self.search_matches.clear();
+                self.search.match_stats = None;
                 self.set_status(format!("Pattern not found: {}", pattern));
             }
         } else {
             self.set_status("No previous search pattern");
+        }
+    }
+
+    /// Recompute the `[current/total]` statusline counter after a search jump.
+    /// Event-driven only (/, ?, n, N, *, #) — never called from render, and
+    /// skipped in large-file mode so search stays a single buffer pass there.
+    fn update_search_match_stats(&mut self, pattern: &str) {
+        self.search.match_stats = None;
+        if pattern.is_empty() || self.current_buffer_large_file_mode_active() {
+            return;
+        }
+
+        let mut total = 0usize;
+        let mut current = None;
+        let total_lines = self.buffers[self.current_buffer_idx].len_lines();
+        for line_idx in 0..total_lines {
+            let Some(line) = self.buffers[self.current_buffer_idx].line(line_idx) else {
+                continue;
+            };
+            let line_str: String = line.chars().collect();
+            let mut search_from = 0;
+            while let Some(byte_pos) = line_str[search_from..].find(pattern) {
+                let match_byte_start = search_from + byte_pos;
+                total += 1;
+                // Byte→char conversion only matters on the cursor's line.
+                if line_idx == self.cursor.line
+                    && Self::byte_to_char_idx(&line_str, match_byte_start) == self.cursor.col
+                {
+                    current = Some(total);
+                }
+                search_from = match_byte_start + pattern.len();
+            }
+        }
+
+        // The cursor sits on a match start after every search jump; if it
+        // doesn't, the count would mislead, so show nothing.
+        if let Some(current) = current {
+            self.search.match_stats = Some((current, total));
         }
     }
 
@@ -6949,8 +7001,10 @@ impl Editor {
             self.search.last_direction = SearchDirection::Forward;
             if self.do_search(&word, SearchDirection::Forward, true) {
                 self.refresh_visible_search_matches(&word);
+                self.update_search_match_stats(&word);
             } else {
                 self.search_matches.clear();
+                self.search.match_stats = None;
                 self.set_status(format!("Pattern not found: {}", word));
             }
         } else {
@@ -6967,8 +7021,10 @@ impl Editor {
             self.search.last_direction = SearchDirection::Backward;
             if self.do_search(&word, SearchDirection::Backward, true) {
                 self.refresh_visible_search_matches(&word);
+                self.update_search_match_stats(&word);
             } else {
                 self.search_matches.clear();
+                self.search.match_stats = None;
                 self.set_status(format!("Pattern not found: {}", word));
             }
         } else {
@@ -11792,6 +11848,29 @@ mod tests {
                     && *line < editor.viewport_offset + visible_rows),
             "search highlights should only include visible lines"
         );
+    }
+
+    #[test]
+    fn search_match_counter_tracks_jumps_and_clears_on_movement() {
+        let mut editor = Editor::default();
+        editor.set_size(80, 10);
+        editor.replace_buffer_content("alpha beta\nbeta gamma\nbeta beta end\n");
+        editor.enter_search_forward();
+        editor.search.input = "beta".to_string();
+        editor.search.cursor = 4;
+
+        editor.execute_search();
+        assert_eq!(editor.search.match_stats, Some((1, 4)));
+
+        editor.search_next();
+        assert_eq!(editor.search.match_stats, Some((2, 4)));
+
+        editor.search_prev();
+        assert_eq!(editor.search.match_stats, Some((1, 4)));
+
+        // Counter shares the highlight lifecycle: any non-search movement clears it.
+        editor.clear_search_highlights();
+        assert_eq!(editor.search.match_stats, None);
     }
 
     #[test]

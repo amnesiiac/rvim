@@ -3386,6 +3386,7 @@ impl Terminal {
             lsp_attached: editor.lsp_status.is_some(),
             lsp_busy: editor.lsp_busy,
             lsp_spinner: editor.lsp_spinner_frame(),
+            search_count: editor.search.match_stats,
             line: editor.cursor.line + 1,
             col: editor.cursor.col + 1,
             position: crate::statusline::ScrollPosition::from_viewport(
