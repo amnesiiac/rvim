@@ -24,6 +24,8 @@
 
 ### Interface
 
+- The `:Keymaps` cheatsheet caught up with the editor. It had quietly stopped being updated in June and was missing everything added since: the method motions, section and unmatched-bracket motions, `gm`, `go`, `s`, several window and terminal session keys, and more. A new test now fails whenever a key documented in KEYBINDINGS.md is missing from the cheatsheet, so it cannot drift again.
+
 - Rich mode no longer draws the `~` column on rows past the end of the buffer, like Vim's `fillchars=eob:' '`. Minimal mode keeps the tildes.
 - The statusline now shows a `[3/12]` match counter on the right side after a search (`/`, `?`, `n`, `N`, `*`, `#`), in both rich and minimal layouts. It clears together with the search highlights when the cursor moves.
 - Unified the remaining floating windows under the rich chrome. The leader/which-key popup and the command suggestions/history popup are now rounded-corner boxes with icon border titles and right-aligned key hints, and the command popup marks the selected row with the finder's accent bar instead of `>`. The floating terminal's corners now come from the shared glyph table (square in minimal mode, matching the finder) and its title carries a terminal icon. Minimal mode keeps the previous flat headers throughout.
