@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Performance
+
+- Live grep applies incoming result batches in about 0.1ms instead of 2.3ms and no longer redoes highlight work for results already on the list, so the finder stays responsive while matches stream in. (#301)
+- Typing in the file, buffer, and git changes pickers now computes match highlights only for the rows on screen instead of every match, roughly halving keystroke cost in large projects. (#302)
+- Document changes go to the LSP once per input batch instead of once per keystroke, with the serialized text shared with Copilot, so fast input bursts cost one document pass instead of one per key. (#303)
+
 ### Vim Compatibility
 
 - Fixed the quote text objects (`i"`, `a"`, `i'`, `a'`, `` i` ``, `` a` ``) doing nothing when the cursor sits before the first quote. They now seek forward on the line, as in Vim, so `ci"` works from the start of the line.

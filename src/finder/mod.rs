@@ -1915,7 +1915,10 @@ mod tests {
 
         batch_times.sort_unstable();
         let p95 = batch_times[(batch_times.len() * 95).div_ceil(100) - 1];
-        let budget = Duration::from_millis(5);
+        // Debug-build budget with CI-runner headroom (release p95 is ~114us,
+        // debug ~416us). Catches order-of-magnitude regressions like the old
+        // full-rescan, which grows past this as batches accumulate.
+        let budget = Duration::from_millis(25);
         println!(
             "grep batch apply: p95={p95:?} max={:?} budget={budget:?}",
             batch_times.last().unwrap()
@@ -1963,7 +1966,10 @@ mod tests {
 
         keystroke_times.sort_unstable();
         let p95 = keystroke_times[(keystroke_times.len() * 95).div_ceil(100) - 1];
-        let budget = Duration::from_millis(10);
+        // Debug-build budget with CI-runner headroom (release p95 is ~3.2ms,
+        // debug ~46ms). The laziness itself is guarded by the visible-rows
+        // regression tests; this catches order-of-magnitude blowups.
+        let budget = Duration::from_millis(250);
         println!(
             "finder filter keystroke: p95={p95:?} max={:?} budget={budget:?}",
             keystroke_times.last().unwrap()
