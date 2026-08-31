@@ -103,7 +103,6 @@ quickfix before tabs and tags.
 |---------|------------------|
 | `Ctrl+e` | Insert the character from the line below the cursor |
 | `Ctrl+y` | Insert the character from the line above the cursor |
-| `Ctrl+v` | Insert the next character literally (or by decimal/hex code) |
 
 ### Command-Line Mode Defaults
 
@@ -153,9 +152,10 @@ reach for one of these, open an issue and it moves up.
 `g?{motion}` / `g??` (ROT13), `ga` (char value), `g8` (UTF-8 bytes), `gF`
 (open file at line number), `['` / `]'` / `` [` `` / `` ]` `` (previous/next
 lowercase mark), `Ctrl+k` digraphs (insert), the `Ctrl+x` completion sub-mode
-(insert; LSP completion covers this), operator-forced motions (`dvj`, `dVj`),
-and Neovim 0.11's `gri`/`grn`/`grr`/`gra`/`gO` LSP maps (covered by Nevi's own
-LSP keys above).
+(insert; LSP completion covers this), `Ctrl+v` character-code entry
+(`<C-v>123`, `<C-v>u1f600`; the literal-next-key form is implemented),
+operator-forced motions (`dvj`, `dVj`), and Neovim 0.11's
+`gri`/`grn`/`grr`/`gra`/`gO` LSP maps (covered by Nevi's own LSP keys above).
 
 ---
 

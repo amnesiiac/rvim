@@ -552,4 +552,46 @@ pub(super) const EDITING_CASES: &[OracleCase] = &[
         initial_text: "abc# def\n",
         keys: "cwX<Esc>",
     },
+    // Insert-mode <C-v> takes the next key literally (issue #281's repro
+    // inserted "vy" instead of the 0x19 control byte).
+    OracleCase {
+        name: "ctrl-v inserts literal control char",
+        initial_text: "\n",
+        keys: "i<C-v><C-y><Esc>",
+    },
+    OracleCase {
+        name: "ctrl-v inserts literal escape and insert continues",
+        initial_text: "\n",
+        keys: "iA<C-v><Esc>B<Esc>",
+    },
+    OracleCase {
+        name: "ctrl-v inserts literal tab",
+        initial_text: "\n",
+        keys: "iA<C-v><Tab>B<Esc>",
+    },
+    // The literal path must bypass auto-pairs: Vim inserts a lone paren.
+    OracleCase {
+        name: "ctrl-v open paren inserts without auto pair",
+        initial_text: "\n",
+        keys: "i<C-v>(<Esc>",
+    },
+    OracleCase {
+        name: "ctrl-q aliases ctrl-v literal insert",
+        initial_text: "\n",
+        keys: "i<C-v><C-y>x<C-q><C-y><Esc>",
+    },
+    // The literal must belong to the surrounding insert session for undo and
+    // dot repeat. A counted variant (3i<C-v>..) is blocked on the pre-existing
+    // bug that counted lowercase i never repeats; a <C-v><CR> variant is
+    // blocked on ropey treating a bare CR as a line break.
+    OracleCase {
+        name: "undo removes literal insert with its session",
+        initial_text: "\n",
+        keys: "i<C-v><C-y><Esc>u",
+    },
+    OracleCase {
+        name: "dot repeat replays literal insert",
+        initial_text: "\n",
+        keys: "i<C-v><C-y><Esc>.",
+    },
 ];
