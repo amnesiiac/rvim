@@ -528,6 +528,7 @@ View and edit recorded macros as readable key notation instead of re-recording.
 | `Ctrl+a` | Insert previously inserted text |
 | `Ctrl+r {reg}` | Insert contents of register |
 | `Ctrl+o` | Run one normal-mode command, then return to insert |
+| `Ctrl+v {key}` or `Ctrl+q {key}` | Insert the next key literally (e.g. `Ctrl+v` `Ctrl+y` inserts the `0x19` control character, `Ctrl+v` `Tab` a real tab) |
 
 **Copilot (if enabled):**
 

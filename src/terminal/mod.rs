@@ -2176,10 +2176,11 @@ impl Terminal {
             terminal_print!(self, "  "); // Empty sign column
 
             execute!(self.stdout, SetForegroundColor(Color::Blue))?;
+            let eob = editor.ui_glyphs().eob;
             if show_line_numbers {
-                terminal_print!(self, "{:>width$} ~", "", width = line_num_width);
+                terminal_print!(self, "{:>width$} {}", "", eob, width = line_num_width);
             } else {
-                terminal_print!(self, "~");
+                terminal_print!(self, "{}", eob);
             }
             execute!(self.stdout, SetForegroundColor(editor_fg))?;
 
@@ -2594,10 +2595,11 @@ impl Terminal {
                 terminal_print!(self, "  "); // Empty sign column
 
                 execute!(self.stdout, SetForegroundColor(Color::Blue))?;
+                let eob = editor.ui_glyphs().eob;
                 if show_line_numbers {
-                    terminal_print!(self, "{:>width$} ~", "", width = line_num_width);
+                    terminal_print!(self, "{:>width$} {}", "", eob, width = line_num_width);
                 } else {
-                    terminal_print!(self, "~");
+                    terminal_print!(self, "{}", eob);
                 }
                 execute!(
                     self.stdout,
@@ -8268,6 +8270,15 @@ fn handle_insert_mode(editor: &mut Editor, key: KeyEvent) {
     let buffer_version_before = editor.buffer().version();
     let had_visible_search_matches = !editor.search_matches.is_empty();
 
+    // Vim inserts the key after <C-v> without mapping, so take it before remap.
+    if editor.pending_insert_literal {
+        editor.pending_insert_literal = false;
+        if let Some(ch) = command_literal_char(key) {
+            editor.insert_char(ch);
+        }
+        return;
+    }
+
     // Apply custom keymap remapping for insert mode
     let key = editor.keymap.remap_insert(key);
 
@@ -8459,6 +8470,14 @@ fn handle_insert_mode(editor: &mut Editor, key: KeyEvent) {
             editor.pending_insert_register = true;
         }
 
+        // Insert the next key literally (Ctrl+v, or Vim's Ctrl+q alias).
+        // Digit/unicode entry (<C-v>123, <C-v>u1f600) is not supported, same
+        // as the command-line <C-v>.
+        (KeyModifiers::CONTROL, KeyCode::Char('v'))
+        | (KeyModifiers::CONTROL, KeyCode::Char('q')) => {
+            editor.pending_insert_literal = true;
+        }
+
         // Execute one normal-mode command, then return to insert mode (Ctrl+o)
         (KeyModifiers::CONTROL, KeyCode::Char('o')) => {
             editor.enter_insert_normal_once();
@@ -8508,8 +8527,14 @@ fn handle_insert_mode(editor: &mut Editor, key: KeyEvent) {
             }
         }
 
-        // Regular character - accept any modifier for printable chars
-        (_, KeyCode::Char(c)) if !c.is_control() => {
+        // Regular character. SHIFT and AltGr (reported as CONTROL|ALT on some
+        // terminals) still type their character, but a bare CONTROL chord is a
+        // command key: unhandled ones must not fall through and type the raw
+        // letter (Vim treats unmapped insert-mode ctrl keys as no-ops).
+        (mods, KeyCode::Char(c))
+            if !c.is_control()
+                && (!mods.contains(KeyModifiers::CONTROL) || mods.contains(KeyModifiers::ALT)) =>
+        {
             if editor.settings.editor.auto_pairs {
                 // Auto-pairs: skip over closing pair if next char is the same
                 let next_char = editor
@@ -11614,6 +11639,26 @@ mod tests {
     }
 
     #[test]
+    fn end_of_buffer_filler_follows_ui_style() {
+        let mut editor = Editor::default();
+        editor.set_size(40, 10);
+        editor.replace_buffer_content("only line\n");
+
+        let rendered = render_editor_to_string(&editor);
+        assert!(
+            !rendered.contains('~'),
+            "rich mode hides end-of-buffer tildes; output={rendered:?}"
+        );
+
+        editor.settings.ui.style = Some(crate::config::UiStyle::Minimal);
+        let rendered = render_editor_to_string(&editor);
+        assert!(
+            rendered.contains('~'),
+            "minimal mode keeps end-of-buffer tildes; output={rendered:?}"
+        );
+    }
+
+    #[test]
     fn gutter_diagnostic_sign_follows_ui_style() {
         let tmp = std::env::temp_dir().join(format!("nevi_gutter_style_{}", std::process::id()));
         std::fs::create_dir_all(&tmp).expect("create temp dir");
@@ -14179,6 +14224,128 @@ mod tests {
             editor.command_line.cursor,
             "write keep\u{17}".chars().count()
         );
+    }
+
+    #[test]
+    fn insert_ctrl_v_inserts_next_control_key_literally() {
+        let mut editor = Editor::default();
+        editor.replace_buffer_content("\n");
+        handle_key(&mut editor, key('i'));
+
+        handle_key(&mut editor, ctrl_key('v'));
+        handle_key(&mut editor, ctrl_key('y'));
+        handle_key(&mut editor, esc_key());
+
+        assert_eq!(editor.mode, Mode::Normal);
+        assert_eq!(editor.buffer().content(), "\u{19}\n");
+    }
+
+    #[test]
+    fn insert_ctrl_v_esc_inserts_literal_escape_and_stays_in_insert() {
+        let mut editor = Editor::default();
+        editor.replace_buffer_content("\n");
+        handle_key(&mut editor, key('i'));
+        handle_key(&mut editor, key('A'));
+
+        handle_key(&mut editor, ctrl_key('v'));
+        handle_key(&mut editor, esc_key());
+        assert_eq!(editor.mode, Mode::Insert);
+
+        handle_key(&mut editor, key('B'));
+        handle_key(&mut editor, esc_key());
+
+        assert_eq!(editor.mode, Mode::Normal);
+        assert_eq!(editor.buffer().content(), "A\u{1b}B\n");
+    }
+
+    #[test]
+    fn insert_ctrl_v_literal_bypasses_auto_pairs() {
+        let mut editor = Editor::default();
+        editor.replace_buffer_content("\n");
+        assert!(editor.settings.editor.auto_pairs);
+        handle_key(&mut editor, key('i'));
+
+        handle_key(&mut editor, ctrl_key('v'));
+        handle_key(&mut editor, key('('));
+        handle_key(&mut editor, esc_key());
+
+        assert_eq!(editor.buffer().content(), "(\n");
+    }
+
+    #[test]
+    fn insert_ctrl_q_aliases_ctrl_v_literal_insert() {
+        let mut editor = Editor::default();
+        editor.replace_buffer_content("\n");
+        handle_key(&mut editor, key('i'));
+
+        handle_key(&mut editor, ctrl_key('q'));
+        handle_key(&mut editor, ctrl_key('u'));
+        handle_key(&mut editor, esc_key());
+
+        assert_eq!(editor.buffer().content(), "\u{15}\n");
+    }
+
+    #[test]
+    fn insert_unhandled_ctrl_chord_does_not_type_its_letter() {
+        // Issue #281: i<C-v><C-y> wrote "vy" because unhandled ctrl chords
+        // fell through to the plain-character arm.
+        let mut editor = Editor::default();
+        editor.replace_buffer_content("\n");
+        handle_key(&mut editor, key('i'));
+        handle_key(&mut editor, key('A'));
+
+        handle_key(&mut editor, ctrl_key('g'));
+        handle_key(&mut editor, key('B'));
+        handle_key(&mut editor, esc_key());
+
+        assert_eq!(editor.mode, Mode::Normal);
+        assert_eq!(editor.buffer().content(), "AB\n");
+    }
+
+    #[test]
+    fn insert_ctrl_v_takes_key_before_insert_remaps() {
+        // Vim inserts the key after ctrl-v without mapping, so a user's
+        // escape-style insert remap must not fire on it.
+        let mut settings = Settings::default();
+        settings.keymap.insert.push(KeymapEntry {
+            from: "j".to_string(),
+            to: "<Esc>".to_string(),
+        });
+        let mut editor = Editor::new(settings);
+        editor.replace_buffer_content("\n");
+
+        // Sanity: the remap is active - a plain j leaves insert mode.
+        handle_key(&mut editor, key('i'));
+        handle_key(&mut editor, key('j'));
+        assert_eq!(editor.mode, Mode::Normal);
+
+        handle_key(&mut editor, key('i'));
+        handle_key(&mut editor, ctrl_key('v'));
+        handle_key(&mut editor, key('j'));
+        assert_eq!(editor.mode, Mode::Insert);
+        handle_key(&mut editor, esc_key());
+
+        assert_eq!(editor.buffer().content(), "j\n");
+    }
+
+    #[test]
+    fn insert_altgr_control_alt_chord_still_types_its_char() {
+        // AltGr chars arrive as CONTROL|ALT on some terminals; they must keep
+        // typing even though bare CONTROL chords no longer fall through.
+        let mut editor = Editor::default();
+        editor.replace_buffer_content("\n");
+        handle_key(&mut editor, key('i'));
+
+        handle_key(
+            &mut editor,
+            KeyEvent::new(
+                KeyCode::Char('@'),
+                KeyModifiers::CONTROL | KeyModifiers::ALT,
+            ),
+        );
+        handle_key(&mut editor, esc_key());
+
+        assert_eq!(editor.buffer().content(), "@\n");
     }
 
     #[test]

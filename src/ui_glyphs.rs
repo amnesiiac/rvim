@@ -54,6 +54,9 @@ pub struct UiGlyphs {
     pub gutter_hint: &'static str,
     /// Icon before the project name in the explorer header.
     pub explorer_header_icon: &'static str,
+    /// End-of-buffer filler drawn on rows past the last line (Vim's `~`).
+    /// Blank in rich — the `fillchars=eob:' '` look; minimal keeps the tilde.
+    pub eob: &'static str,
 }
 
 pub static RICH: UiGlyphs = UiGlyphs {
@@ -84,6 +87,7 @@ pub static RICH: UiGlyphs = UiGlyphs {
     gutter_info: "\u{f05a}",
     gutter_hint: "\u{f0eb}",
     explorer_header_icon: "\u{f07b} ",
+    eob: " ",
 };
 
 pub static MINIMAL: UiGlyphs = UiGlyphs {
@@ -114,6 +118,7 @@ pub static MINIMAL: UiGlyphs = UiGlyphs {
     gutter_info: "■",
     gutter_hint: "○",
     explorer_header_icon: "",
+    eob: "~",
 };
 
 /// Devicon glyph for the finder's two-char file-type chips. The chip
@@ -262,6 +267,7 @@ mod tests {
             g.gutter_info,
             g.gutter_hint,
             g.explorer_header_icon,
+            g.eob,
         ];
         v.extend(g.lsp_busy_frames);
         v

@@ -1147,6 +1147,9 @@ pub struct Editor {
     replace_session: ReplaceSession,
     /// Insert mode is waiting for a register name after `<C-r>`.
     pub pending_insert_register: bool,
+    /// Insert mode is waiting for the next key to insert literally after
+    /// `<C-v>` / `<C-q>` (e.g. `<C-v><C-y>` inserts 0x19).
+    pub pending_insert_literal: bool,
     /// Expression register input is active after `"=` or `<C-r>=`.
     pub pending_expression_register: Option<ExpressionRegisterTarget>,
     /// Expression being typed for the expression register.
@@ -1650,6 +1653,7 @@ impl Editor {
             insert_session_open_line_indent: None,
             replace_session: ReplaceSession::default(),
             pending_insert_register: false,
+            pending_insert_literal: false,
             pending_expression_register: None,
             expression_register_input: String::new(),
             expression_register_value: None,
