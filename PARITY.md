@@ -10,13 +10,13 @@ the test suite enforces, so it cannot drift from what is actually verified.
 ## Summary
 
 - **339 keybinds implemented** ([KEYBINDINGS.md](KEYBINDINGS.md)), **88 planned** ([KEYBINDS_ROADMAP.md](KEYBINDS_ROADMAP.md))
-- **139 keybinds in the coverage inventory**, each mapped to the automated test that protects it:
-  - 131 verified against real Neovim (v0.11.3) by the Vim oracle
+- **159 keybinds in the coverage inventory**, each mapped to the automated test that protects it:
+  - 151 verified against real Neovim (v0.11.3) by the Vim oracle
   - 7 protected by focused Nevi regression tests
   - 1 covered as default-keymap plumbing with dedicated tests
-- **346 oracle cases**: motions (144), editing (112), insert-entry (11), open-line (20), replace (27), text-objects (30), undo-redo (2)
+- **366 oracle cases**: motions (144), editing (132), insert-entry (11), open-line (20), replace (27), text-objects (30), undo-redo (2)
 - **0 tracked coverage gaps**
-- **181 of 438 documented keybind rows map to an inventoried keybind**; the rest work today but are not yet individually tracked ([full list below](#documented-but-not-yet-inventoried))
+- **213 of 438 documented keybind rows map to an inventoried keybind**; the rest work today but are not yet individually tracked ([full list below](#documented-but-not-yet-inventoried))
 
 ## How the Vim oracle works
 
@@ -107,6 +107,26 @@ claim protection.
 | `db` | Delete to previous word start | `delete to previous word start` |
 | `d$` | Delete through line end | `delete with line-end motion` |
 | `caw` | Change around word | `change around word` |
+| `q{a-z}` | Record macro into register | `record and play macro` |
+| `q` | Stop recording | `record and play macro` |
+| `@{a-z}` | Play macro from register | `record and play macro` |
+| `@@` | Replay last executed macro | `replay last macro` |
+| `{n}@{a-z}` | Play macro n times | `counted macro play` |
+| `"a` | Named registers | `named register yank and paste` |
+| `"A` | Append to named registers | `named register append` |
+| `"_` | Black hole register | `black hole delete keeps unnamed register` |
+| `"0` | Last yank register | `register zero keeps last yank after delete` |
+| `".` | Last inserted text register | `last inserted text register` |
+| `<C-[>` | Exit insert mode | `ctrl-bracket exits insert like escape` |
+| `Backspace` | Delete character before cursor in insert | `insert backspace deletes typed chars` |
+| `<C-w>` | Delete word before cursor in insert | `insert ctrl-w deletes word before cursor` |
+| `<C-a>` | Insert previously inserted text | `insert ctrl-a repeats last inserted text` |
+| `Ctrl+r {reg}` | Insert register contents | `insert ctrl-r pastes named register` |
+| `v` | Character-wise visual mode | `visual charwise delete` |
+| `V` | Line-wise visual mode | `visual linewise delete` |
+| `<C-v>` | Block visual mode | `visual block delete` |
+| `Esc` | Exit visual mode | `escape cancels visual selection` |
+| `gv` | Reselect last visual selection | `reselect last visual selection` |
 | `iw` | Inner/around word objects | `delete inner word` |
 | `iW` | Inner/around WORD objects | `delete inner big word` |
 | `i"` | Inner/around double-quote objects | `change inner double quotes from before the string` |
@@ -202,7 +222,7 @@ like `dw` are tracked as single inventory entries, so their building-block
 rows may already be covered compositionally.)
 
 <details>
-<summary>257 untracked rows</summary>
+<summary>225 untracked rows</summary>
 
 | Keybind | Behavior |
 |---------|----------|
@@ -227,50 +247,26 @@ rows may already be covered compositionally.)
 | `#` | Search word under cursor backward |
 | `gn` | Search forward and select match |
 | `gN` | Search backward and select match |
-| `Ctrl+w` | Delete word before cursor |
-| `Ctrl+r {reg}` | Insert register contents |
 | `Up` | Navigate to previous search history entry |
 | `Down` | Navigate to next search history entry |
 | `m{A-Z}` | Set global mark (works across files) |
 | `` `{a-z} `` | Jump to exact position of local mark |
 | `'{A-Z}` | Jump to line of global mark |
 | `` `{A-Z} `` | Jump to exact position of global mark |
-| `q{a-z}` | Start recording macro into register |
-| `q` | Stop recording (when recording) |
-| `@{a-z}` | Play macro from register |
-| `@@` | Replay last executed macro |
-| `{n}@{a-z}` | Play macro n times |
 | `:Macros` | Open all recorded macros as notation in a read-only `[macros]` buffer |
 | `:MacroEdit {a-z}` | Edit one register's notation in a `[macro-{register}]` scratch buffer; `:w` applies it back to the register (empty content clears it) |
-| `Esc` or `Ctrl+[` | Exit insert mode |
-| `Backspace` | Delete character before cursor |
-| `Ctrl+w` | Delete word before cursor |
 | `Ctrl+t` | Increase indent of current line |
-| `Ctrl+a` | Insert previously inserted text |
-| `Ctrl+r {reg}` | Insert contents of register |
 | `Ctrl+v {key}` or `Ctrl+q {key}` | Insert the next key literally (e.g. `Ctrl+v` `Ctrl+y` inserts the `0x19` control character, `Ctrl+v` `Tab` a real tab) |
 | `Ctrl+l` | Accept visible Copilot suggestion |
 | `Alt+]` | Next visible Copilot suggestion |
 | `Alt+[` | Previous visible Copilot suggestion |
-| `Esc` or `Ctrl+[` | Exit replace mode |
-| `Backspace` | Restore the previous straight-line replacement, or navigate backward after cursor movement |
-| `v` | Enter character-wise visual mode |
-| `V` | Enter line-wise visual mode |
-| `Ctrl+v` | Enter block visual mode |
-| `Esc` | Exit visual mode |
 | `>` | Indent selection |
 | `<` | Dedent selection |
 | `gc` | Toggle comment on selection |
 | `S{char}` | Surround selection with character |
-| `gv` | Reselect last visual selection (from normal mode) |
 | `` i` `` / `` a` `` | Inner/around backticks |
-| `"a` - `"z` | Named registers |
-| `"A` - `"Z` | Append to named registers |
 | `"+` | System clipboard |
 | `"*` | Selection clipboard (same as `+` on macOS) |
-| `"_` | Black hole (delete without saving) |
-| `"0` | Last yank |
-| `".` | Last inserted text |
 | `"%` | Current filename |
 | `":` | Last command |
 | `"#` | Alternate filename |
@@ -345,7 +341,6 @@ rows may already be covered compositionally.)
 | `Ctrl+Shift+W` | Close current terminal session |
 | `Ctrl+Shift+C` | Copy the current terminal selection |
 | `Cmd+C` | Copy the current terminal selection when the outer terminal forwards the key to Nevi |
-| `Esc` / `Ctrl+[` | Clear the current terminal selection |
 | `<leader>ca` | Code actions |
 | `<leader>rn` | Rename symbol |
 | `<leader>d` | Search diagnostics |
@@ -360,13 +355,10 @@ rows may already be covered compositionally.)
 | `<leader>4` | Jump to harpoon slot 4 |
 | `Ctrl+j` / `Ctrl+n` / `Down` | Move to next result |
 | `Ctrl+k` / `Ctrl+p` / `Up` | Move to previous result |
-| `Esc` | Switch to normal mode |
 | `Ctrl+c` | Close finder |
 | `Ctrl+t` | Toggle preview panel |
 | `g` | Go to first result |
-| `Esc` / `Ctrl+[` / `Ctrl+c` | Close finder |
 | `K` | Move selected Harpoon item up |
-| `Esc` / `Ctrl+[` / `q` | Close explorer |
 | `Tab` | Toggle expand/collapse |
 | `?` | Show explorer keymaps |
 | `Ctrl+l` | Focus editor and keep explorer open |
@@ -379,12 +371,8 @@ rows may already be covered compositionally.)
 | `]h` | Go to next harpoon file |
 | `[h` | Go to previous harpoon file |
 | `1` - `9` | Open the numbered recent file |
-| `Ctrl+w` | Delete word before cursor |
-| `Ctrl+r {reg}` | Insert register contents |
-| `Ctrl+v` / `Ctrl+q` | Insert the next key literally |
 | `Ctrl+k {char1}{char2}` | Insert a Vim-compatible digraph, for example `a:` -> `ä` |
 | `Ctrl+l` | Complete longest common command prefix |
-| `Ctrl+a` | Insert all matching command completions |
 | `Alt+r` | Toggle command history window |
 | `Tab` | Accept selected command completion |
 | `Shift+Tab` | Accept previous completion |
