@@ -747,9 +747,9 @@ impl FuzzyFinder {
         self.grep_search_generation = self.grep_search_generation.wrapping_add(1);
     }
 
-    fn update_grep_match_indices(&mut self) {
-        for item in &mut self.items {
-            item.match_indices.clear();
+    /// Recompute match highlight indices for items[start..].
+    fn update_grep_match_indices_from(&mut self, start: usize) {
+        for item in &mut self.items[start..] {
             item.match_indices = grep_result_match_indices(
                 &item.display,
                 &self.query,
@@ -907,9 +907,13 @@ impl FuzzyFinder {
                     }
 
                     let had_items = !self.items.is_empty();
+                    // Indices for already-applied batches are still valid (the
+                    // query is fixed for a generation), so only the new batch
+                    // needs highlighting work.
+                    let new_start = self.items.len();
                     self.items.extend(items);
                     self.filtered = (0..self.items.len()).collect();
-                    self.update_grep_match_indices();
+                    self.update_grep_match_indices_from(new_start);
 
                     if !had_items {
                         self.selected = 0;
@@ -1129,6 +1133,52 @@ fn grep_result_match_indices(display: &str, query: &str, start_byte: usize) -> V
 
     let query_lower = query.to_lowercase();
     let query_len = query.chars().count();
+
+    // Fast path: lowercase the line once and substring-search the lowered
+    // copy. This needs 1:1 char alignment between original and lowered text;
+    // lowercasing can expand a char (e.g. 'İ' becomes two chars), so fall
+    // back to the per-position scan when counts disagree.
+    let display_lower = display.to_lowercase();
+    if display_lower.chars().count() != display.chars().count()
+        || query_lower.chars().count() != query_len
+    {
+        return grep_result_match_indices_per_position(
+            display,
+            &query_lower,
+            query_len,
+            start_byte,
+        );
+    }
+
+    let start_char = display[..start_byte].chars().count();
+    let mut search_byte = display_lower
+        .char_indices()
+        .nth(start_char)
+        .map(|(byte_idx, _)| byte_idx)
+        .unwrap_or(display_lower.len());
+    let mut chars_before = start_char;
+    let mut indices = Vec::new();
+
+    while let Some(rel) = display_lower[search_byte..].find(&query_lower) {
+        let abs = search_byte + rel;
+        let match_char = chars_before + display_lower[search_byte..abs].chars().count();
+        indices.extend(match_char..match_char + query_len);
+        // Non-overlapping, matching the per-position scan: resume after the match.
+        chars_before = match_char + query_len;
+        search_byte = abs + query_lower.len();
+    }
+
+    indices
+}
+
+/// Original per-position scan, kept for text where lowercasing changes char
+/// counts. O(len^2) allocations, acceptable because this path is rare.
+fn grep_result_match_indices_per_position(
+    display: &str,
+    query_lower: &str,
+    query_len: usize,
+    start_byte: usize,
+) -> Vec<usize> {
     let start_char = display[..start_byte].chars().count();
     let mut next_start_char = start_char;
     let mut indices = Vec::new();
@@ -1138,7 +1188,7 @@ fn grep_result_match_indices(display: &str, query: &str, start_byte: usize) -> V
             continue;
         }
 
-        if display[byte_idx..].to_lowercase().starts_with(&query_lower) {
+        if display[byte_idx..].to_lowercase().starts_with(query_lower) {
             let end_char = char_idx + query_len;
             indices.extend(char_idx..end_char);
             next_start_char = end_char.max(char_idx + 1);
@@ -1602,7 +1652,7 @@ mod tests {
             PathBuf::from("src/main.rs"),
         )];
 
-        finder.update_grep_match_indices();
+        finder.update_grep_match_indices_from(0);
 
         assert!(finder.items[0].match_indices.is_empty());
     }
@@ -1617,7 +1667,7 @@ mod tests {
             PathBuf::from("src/main.rs"),
         )];
 
-        finder.update_grep_match_indices();
+        finder.update_grep_match_indices_from(0);
 
         let chars: Vec<char> = finder.items[0].display.chars().collect();
         let highlighted: String = finder.items[0]
@@ -1632,6 +1682,141 @@ mod tests {
                 .match_indices
                 .iter()
                 .all(|idx| *idx >= "src/main.rs:12: ".chars().count())
+        );
+    }
+
+    #[test]
+    fn grep_result_highlight_matches_mixed_case_non_overlapping() {
+        let display = "src/a.rs:1: Needle needleNEEDLE end";
+        let indices = super::grep_result_match_indices(display, "needle", "src/a.rs:1: ".len());
+
+        let chars: Vec<char> = display.chars().collect();
+        let highlighted: String = indices.iter().map(|idx| chars[*idx]).collect();
+        assert_eq!(highlighted, "NeedleneedleNEEDLE");
+
+        let snippet_start = "src/a.rs:1: ".chars().count();
+        assert_eq!(indices[0], snippet_start);
+    }
+
+    #[test]
+    fn grep_result_highlight_handles_multibyte_before_match() {
+        // 'é' is 2 bytes but 1 char; indices are char positions, so the match
+        // position must not drift after multibyte text.
+        let display = "src/é.rs:1: caf\u{e9} needle";
+        let start_byte = display.find("caf").expect("snippet start");
+        let indices = super::grep_result_match_indices(display, "needle", start_byte);
+
+        let chars: Vec<char> = display.chars().collect();
+        let highlighted: String = indices.iter().map(|idx| chars[*idx]).collect();
+        assert_eq!(highlighted, "needle");
+        assert_eq!(
+            indices[0],
+            display.chars().count() - "needle".chars().count()
+        );
+    }
+
+    #[test]
+    fn grep_result_highlight_falls_back_when_lowercase_expands() {
+        // 'İ' lowercases to two chars, breaking 1:1 alignment; the fallback
+        // scan must still find the plain match after it.
+        let display = "src/a.rs:1: \u{130}stanbul needle";
+        let start_byte = "src/a.rs:1: ".len();
+        let indices = super::grep_result_match_indices(display, "needle", start_byte);
+
+        let chars: Vec<char> = display.chars().collect();
+        let highlighted: String = indices.iter().map(|idx| chars[*idx]).collect();
+        assert_eq!(highlighted, "needle");
+    }
+
+    #[test]
+    fn poll_grep_search_keeps_earlier_batch_indices_intact() {
+        let mut finder = FuzzyFinder::new();
+        finder.mode = FinderMode::Grep;
+        finder.query = "needle".to_string();
+        finder.grep_search_generation = 7;
+        finder.grep_search_running = true;
+
+        let (tx, rx) = mpsc::channel();
+        finder.grep_search_receiver = Some(rx);
+
+        for batch_num in 0..2 {
+            tx.send(GrepSearchMessage::Batch {
+                generation: 7,
+                query: "needle".to_string(),
+                items: vec![
+                    FinderItem::new(
+                        format!("src/main.rs:{}: has needle here", batch_num + 1),
+                        PathBuf::from("src/main.rs"),
+                    )
+                    .with_line(batch_num + 1),
+                ],
+            })
+            .unwrap();
+            assert!(finder.poll_grep_search());
+        }
+
+        assert_eq!(finder.items.len(), 2);
+        for item in &finder.items {
+            let chars: Vec<char> = item.display.chars().collect();
+            let highlighted: String = item.match_indices.iter().map(|idx| chars[*idx]).collect();
+            assert_eq!(highlighted, "needle", "display={}", item.display);
+        }
+    }
+
+    #[test]
+    #[ignore = "perf budget guard; run explicitly with cargo test grep_index_budget -- --ignored --nocapture"]
+    fn grep_index_budget_batch_apply_stays_bounded() {
+        use std::time::{Duration, Instant};
+
+        // 20 batches x 50 items, 1000 total: the max_results default. Before
+        // the batch-scoped index update this re-scanned every accumulated item
+        // per batch with O(len^2) lowercasing; the budget locks in the fix.
+        let mut finder = FuzzyFinder::new();
+        finder.mode = FinderMode::Grep;
+        finder.query = "needle".to_string();
+        finder.grep_search_generation = 1;
+        finder.grep_search_running = true;
+
+        let (tx, rx) = mpsc::channel();
+        finder.grep_search_receiver = Some(rx);
+
+        let mut batch_times = Vec::new();
+        for batch_num in 0..20 {
+            let items: Vec<FinderItem> = (0..50)
+                .map(|i| {
+                    FinderItem::new(
+                        format!(
+                            "src/some/dir/file_{batch_num}_{i}.rs:{i}: let value = needle_probe_{i}; // padding padding padding padding needle",
+                        ),
+                        PathBuf::from("src/some/dir/file.rs"),
+                    )
+                    .with_line(i + 1)
+                })
+                .collect();
+            tx.send(GrepSearchMessage::Batch {
+                generation: 1,
+                query: "needle".to_string(),
+                items,
+            })
+            .unwrap();
+
+            let started = Instant::now();
+            assert!(finder.poll_grep_search());
+            batch_times.push(started.elapsed());
+        }
+
+        assert_eq!(finder.items.len(), 1000);
+
+        batch_times.sort_unstable();
+        let p95 = batch_times[(batch_times.len() * 95).div_ceil(100) - 1];
+        let budget = Duration::from_millis(5);
+        println!(
+            "grep batch apply: p95={p95:?} max={:?} budget={budget:?}",
+            batch_times.last().unwrap()
+        );
+        assert!(
+            p95 <= budget,
+            "grep batch apply p95 exceeded budget: p95={p95:?} budget={budget:?}"
         );
     }
 }
