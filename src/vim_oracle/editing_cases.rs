@@ -482,6 +482,110 @@ pub(super) const EDITING_CASES: &[OracleCase] = &[
         initial_text: "alpha\nbeta\n",
         keys: "jA!<Esc>gggix<Esc>",
     },
+    // Macros: record with q, replay with @, repeat with @@ and counts.
+    OracleCase {
+        name: "record and play macro",
+        initial_text: "one\ntwo\nthree\n",
+        keys: "qaxqj@a",
+    },
+    OracleCase {
+        name: "replay last macro",
+        initial_text: "one\ntwo\nthree\n",
+        keys: "qaxqj@aj@@",
+    },
+    OracleCase {
+        name: "counted macro play",
+        initial_text: "abcdefgh\n",
+        keys: "qaxq3@a",
+    },
+    // Registers, observed by pasting back.
+    OracleCase {
+        name: "named register yank and paste",
+        initial_text: "alpha\nbeta\n",
+        keys: "\"ayyj\"ap",
+    },
+    OracleCase {
+        name: "named register append",
+        initial_text: "one\ntwo\n",
+        keys: "\"ayyj\"Ayygg\"ap",
+    },
+    OracleCase {
+        name: "delete into named register",
+        initial_text: "one two\n",
+        keys: "\"adw\"ap",
+    },
+    OracleCase {
+        name: "black hole delete keeps unnamed register",
+        initial_text: "abc\ndef\n",
+        keys: "yy\"_ddp",
+    },
+    OracleCase {
+        name: "register zero keeps last yank after delete",
+        initial_text: "abc\ndef\n",
+        keys: "yydd\"0p",
+    },
+    OracleCase {
+        name: "last inserted text register",
+        initial_text: "x\n",
+        keys: "ihello<Esc>\".p",
+    },
+    // Insert-mode editing keys.
+    OracleCase {
+        name: "insert backspace deletes typed chars",
+        initial_text: "z\n",
+        keys: "ihello<BS><BS><Esc>",
+    },
+    OracleCase {
+        name: "insert backspace joins lines at line start",
+        initial_text: "foo\nbar\n",
+        keys: "ji<BS><Esc>",
+    },
+    OracleCase {
+        name: "insert ctrl-w deletes word before cursor",
+        initial_text: "z\n",
+        keys: "ifoo bar<C-w>baz<Esc>",
+    },
+    OracleCase {
+        name: "insert ctrl-a repeats last inserted text",
+        initial_text: "x\n",
+        keys: "ihey<Esc>A<C-a><Esc>",
+    },
+    OracleCase {
+        name: "insert ctrl-r pastes named register",
+        initial_text: "hello\n",
+        keys: "\"ayiwA <C-r>a<Esc>",
+    },
+    OracleCase {
+        name: "ctrl-bracket exits insert like escape",
+        initial_text: "z\n",
+        keys: "iab<C-[>",
+    },
+    // Visual mode basics.
+    OracleCase {
+        name: "visual charwise delete",
+        initial_text: "abcdef\n",
+        keys: "vlld",
+    },
+    OracleCase {
+        name: "visual linewise delete",
+        initial_text: "one\ntwo\nthree\n",
+        keys: "Vjd",
+    },
+    OracleCase {
+        name: "visual block delete",
+        initial_text: "abc\nabd\n",
+        keys: "l<C-v>jd",
+    },
+    OracleCase {
+        name: "escape cancels visual selection",
+        initial_text: "abc\n",
+        keys: "vll<Esc>x",
+    },
+    OracleCase {
+        name: "reselect last visual selection",
+        initial_text: "alpha\nbeta\n",
+        keys: "vl<Esc>jgvd",
+    },
     // Plain joins (the last-line no-op pins above cover the boundary).
     OracleCase {
         name: "join lines with space",

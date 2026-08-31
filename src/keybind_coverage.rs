@@ -232,6 +232,71 @@ const KEYBIND_COVERAGE: &[KeybindCoverage] = &[
         "delete with line-end motion",
     ),
     vim_oracle("caw", "Change around word", "change around word"),
+    // Macros, registers, insert-mode, and visual-basics batch.
+    vim_oracle(
+        "q{a-z}",
+        "Record macro into register",
+        "record and play macro",
+    ),
+    vim_oracle("q", "Stop recording", "record and play macro"),
+    vim_oracle(
+        "@{a-z}",
+        "Play macro from register",
+        "record and play macro",
+    ),
+    vim_oracle("@@", "Replay last executed macro", "replay last macro"),
+    vim_oracle("{n}@{a-z}", "Play macro n times", "counted macro play"),
+    vim_oracle("\"a", "Named registers", "named register yank and paste"),
+    vim_oracle("\"A", "Append to named registers", "named register append"),
+    vim_oracle(
+        "\"_",
+        "Black hole register",
+        "black hole delete keeps unnamed register",
+    ),
+    vim_oracle(
+        "\"0",
+        "Last yank register",
+        "register zero keeps last yank after delete",
+    ),
+    vim_oracle(
+        "\".",
+        "Last inserted text register",
+        "last inserted text register",
+    ),
+    vim_oracle(
+        "<C-[>",
+        "Exit insert mode",
+        "ctrl-bracket exits insert like escape",
+    ),
+    vim_oracle(
+        "Backspace",
+        "Delete character before cursor in insert",
+        "insert backspace deletes typed chars",
+    ),
+    vim_oracle(
+        "<C-w>",
+        "Delete word before cursor in insert",
+        "insert ctrl-w deletes word before cursor",
+    ),
+    vim_oracle(
+        "<C-a>",
+        "Insert previously inserted text",
+        "insert ctrl-a repeats last inserted text",
+    ),
+    vim_oracle(
+        "Ctrl+r {reg}",
+        "Insert register contents",
+        "insert ctrl-r pastes named register",
+    ),
+    vim_oracle("v", "Character-wise visual mode", "visual charwise delete"),
+    vim_oracle("V", "Line-wise visual mode", "visual linewise delete"),
+    vim_oracle("<C-v>", "Block visual mode", "visual block delete"),
+    vim_oracle("Esc", "Exit visual mode", "escape cancels visual selection"),
+    vim_oracle(
+        "gv",
+        "Reselect last visual selection",
+        "reselect last visual selection",
+    ),
     // Text-object batch: one entry per documented object family.
     vim_oracle("iw", "Inner/around word objects", "delete inner word"),
     vim_oracle("iW", "Inner/around WORD objects", "delete inner big word"),
