@@ -14281,6 +14281,32 @@ mod tests {
     }
 
     #[test]
+    fn insert_ctrl_v_takes_key_before_insert_remaps() {
+        // Vim inserts the key after ctrl-v without mapping, so a user's
+        // escape-style insert remap must not fire on it.
+        let mut settings = Settings::default();
+        settings.keymap.insert.push(KeymapEntry {
+            from: "j".to_string(),
+            to: "<Esc>".to_string(),
+        });
+        let mut editor = Editor::new(settings);
+        editor.replace_buffer_content("\n");
+
+        // Sanity: the remap is active - a plain j leaves insert mode.
+        handle_key(&mut editor, key('i'));
+        handle_key(&mut editor, key('j'));
+        assert_eq!(editor.mode, Mode::Normal);
+
+        handle_key(&mut editor, key('i'));
+        handle_key(&mut editor, ctrl_key('v'));
+        handle_key(&mut editor, key('j'));
+        assert_eq!(editor.mode, Mode::Insert);
+        handle_key(&mut editor, esc_key());
+
+        assert_eq!(editor.buffer().content(), "j\n");
+    }
+
+    #[test]
     fn insert_altgr_control_alt_chord_still_types_its_char() {
         // AltGr chars arrive as CONTROL|ALT on some terminals; they must keep
         // typing even though bare CONTROL chords no longer fall through.
