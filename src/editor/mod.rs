@@ -11374,6 +11374,21 @@ impl Editor {
         let items = crate::finder::keymap_finder_items(&self.settings.keymap);
         self.finder.open_keymaps_with_query(items, query);
         self.mode = Mode::Finder;
+        // A pre-filled query renders highlights on the very first frame.
+        self.ensure_finder_visible_match_indices();
+    }
+
+    /// Top up match highlight indices for the finder rows about to render.
+    /// Must run after anything that changes the finder query, filter, or
+    /// scroll position; rendering itself only has immutable editor access.
+    pub fn ensure_finder_visible_match_indices(&mut self) {
+        let win = crate::finder::FloatingWindow::centered_with_preview(
+            self.term_width,
+            self.term_height,
+            self.finder.preview_enabled,
+        );
+        let list_height = win.height.saturating_sub(4) as usize;
+        self.finder.ensure_visible_match_indices(list_height);
     }
 
     /// Open the fuzzy finder in marks mode

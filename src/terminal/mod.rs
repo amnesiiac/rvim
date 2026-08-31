@@ -9798,6 +9798,9 @@ fn handle_finder_mode(editor: &mut Editor, key: KeyEvent) {
         editor.finder.preview_update_pending = true;
     }
 
+    // Filtering skips highlight-index work; top up the rows about to render.
+    editor.ensure_finder_visible_match_indices();
+
     log_finder_profile(&format!(
         "handle_finder: {:?} key={:?}",
         t_start.elapsed(),
