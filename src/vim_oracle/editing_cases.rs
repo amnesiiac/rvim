@@ -552,4 +552,32 @@ pub(super) const EDITING_CASES: &[OracleCase] = &[
         initial_text: "abc# def\n",
         keys: "cwX<Esc>",
     },
+    // Insert-mode <C-v> takes the next key literally (issue #281's repro
+    // inserted "vy" instead of the 0x19 control byte).
+    OracleCase {
+        name: "ctrl-v inserts literal control char",
+        initial_text: "\n",
+        keys: "i<C-v><C-y><Esc>",
+    },
+    OracleCase {
+        name: "ctrl-v inserts literal escape and insert continues",
+        initial_text: "\n",
+        keys: "iA<C-v><Esc>B<Esc>",
+    },
+    OracleCase {
+        name: "ctrl-v inserts literal tab",
+        initial_text: "\n",
+        keys: "iA<C-v><Tab>B<Esc>",
+    },
+    // The literal path must bypass auto-pairs: Vim inserts a lone paren.
+    OracleCase {
+        name: "ctrl-v open paren inserts without auto pair",
+        initial_text: "\n",
+        keys: "i<C-v>(<Esc>",
+    },
+    OracleCase {
+        name: "ctrl-q aliases ctrl-v literal insert",
+        initial_text: "\n",
+        keys: "i<C-v><C-y>x<C-q><C-y><Esc>",
+    },
 ];

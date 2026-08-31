@@ -14,9 +14,9 @@ the test suite enforces, so it cannot drift from what is actually verified.
   - 117 verified against real Neovim (v0.11.3) by the Vim oracle
   - 7 protected by focused Nevi regression tests
   - 1 covered as default-keymap plumbing with dedicated tests
-- **309 oracle cases**: motions (144), editing (105), insert-entry (11), open-line (20), replace (27), undo-redo (2)
+- **314 oracle cases**: motions (144), editing (110), insert-entry (11), open-line (20), replace (27), undo-redo (2)
 - **0 tracked coverage gaps**
-- **168 of 437 documented keybind rows map to an inventoried keybind**; the rest work today but are not yet individually tracked ([full list below](#documented-but-not-yet-inventoried))
+- **168 of 438 documented keybind rows map to an inventoried keybind**; the rest work today but are not yet individually tracked ([full list below](#documented-but-not-yet-inventoried))
 
 ## How the Vim oracle works
 
@@ -188,7 +188,7 @@ like `dw` are tracked as single inventory entries, so their building-block
 rows may already be covered compositionally.)
 
 <details>
-<summary>269 untracked rows</summary>
+<summary>270 untracked rows</summary>
 
 | Keybind | Behavior |
 |---------|----------|
@@ -234,6 +234,7 @@ rows may already be covered compositionally.)
 | `Ctrl+t` | Increase indent of current line |
 | `Ctrl+a` | Insert previously inserted text |
 | `Ctrl+r {reg}` | Insert contents of register |
+| `Ctrl+v {key}` or `Ctrl+q {key}` | Insert the next key literally (e.g. `Ctrl+v` `Ctrl+y` inserts the `0x19` control character, `Ctrl+v` `Tab` a real tab) |
 | `Ctrl+l` | Accept visible Copilot suggestion |
 | `Alt+]` | Next visible Copilot suggestion |
 | `Alt+[` | Previous visible Copilot suggestion |

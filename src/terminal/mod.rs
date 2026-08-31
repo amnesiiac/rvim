@@ -8268,6 +8268,15 @@ fn handle_insert_mode(editor: &mut Editor, key: KeyEvent) {
     let buffer_version_before = editor.buffer().version();
     let had_visible_search_matches = !editor.search_matches.is_empty();
 
+    // Vim inserts the key after <C-v> without mapping, so take it before remap.
+    if editor.pending_insert_literal {
+        editor.pending_insert_literal = false;
+        if let Some(ch) = command_literal_char(key) {
+            editor.insert_char(ch);
+        }
+        return;
+    }
+
     // Apply custom keymap remapping for insert mode
     let key = editor.keymap.remap_insert(key);
 
@@ -8459,6 +8468,14 @@ fn handle_insert_mode(editor: &mut Editor, key: KeyEvent) {
             editor.pending_insert_register = true;
         }
 
+        // Insert the next key literally (Ctrl+v, or Vim's Ctrl+q alias).
+        // Digit/unicode entry (<C-v>123, <C-v>u1f600) is not supported, same
+        // as the command-line <C-v>.
+        (KeyModifiers::CONTROL, KeyCode::Char('v'))
+        | (KeyModifiers::CONTROL, KeyCode::Char('q')) => {
+            editor.pending_insert_literal = true;
+        }
+
         // Execute one normal-mode command, then return to insert mode (Ctrl+o)
         (KeyModifiers::CONTROL, KeyCode::Char('o')) => {
             editor.enter_insert_normal_once();
@@ -8508,8 +8525,14 @@ fn handle_insert_mode(editor: &mut Editor, key: KeyEvent) {
             }
         }
 
-        // Regular character - accept any modifier for printable chars
-        (_, KeyCode::Char(c)) if !c.is_control() => {
+        // Regular character. SHIFT and AltGr (reported as CONTROL|ALT on some
+        // terminals) still type their character, but a bare CONTROL chord is a
+        // command key: unhandled ones must not fall through and type the raw
+        // letter (Vim treats unmapped insert-mode ctrl keys as no-ops).
+        (mods, KeyCode::Char(c))
+            if !c.is_control()
+                && (!mods.contains(KeyModifiers::CONTROL) || mods.contains(KeyModifiers::ALT)) =>
+        {
             if editor.settings.editor.auto_pairs {
                 // Auto-pairs: skip over closing pair if next char is the same
                 let next_char = editor
@@ -14179,6 +14202,102 @@ mod tests {
             editor.command_line.cursor,
             "write keep\u{17}".chars().count()
         );
+    }
+
+    #[test]
+    fn insert_ctrl_v_inserts_next_control_key_literally() {
+        let mut editor = Editor::default();
+        editor.replace_buffer_content("\n");
+        handle_key(&mut editor, key('i'));
+
+        handle_key(&mut editor, ctrl_key('v'));
+        handle_key(&mut editor, ctrl_key('y'));
+        handle_key(&mut editor, esc_key());
+
+        assert_eq!(editor.mode, Mode::Normal);
+        assert_eq!(editor.buffer().content(), "\u{19}\n");
+    }
+
+    #[test]
+    fn insert_ctrl_v_esc_inserts_literal_escape_and_stays_in_insert() {
+        let mut editor = Editor::default();
+        editor.replace_buffer_content("\n");
+        handle_key(&mut editor, key('i'));
+        handle_key(&mut editor, key('A'));
+
+        handle_key(&mut editor, ctrl_key('v'));
+        handle_key(&mut editor, esc_key());
+        assert_eq!(editor.mode, Mode::Insert);
+
+        handle_key(&mut editor, key('B'));
+        handle_key(&mut editor, esc_key());
+
+        assert_eq!(editor.mode, Mode::Normal);
+        assert_eq!(editor.buffer().content(), "A\u{1b}B\n");
+    }
+
+    #[test]
+    fn insert_ctrl_v_literal_bypasses_auto_pairs() {
+        let mut editor = Editor::default();
+        editor.replace_buffer_content("\n");
+        assert!(editor.settings.editor.auto_pairs);
+        handle_key(&mut editor, key('i'));
+
+        handle_key(&mut editor, ctrl_key('v'));
+        handle_key(&mut editor, key('('));
+        handle_key(&mut editor, esc_key());
+
+        assert_eq!(editor.buffer().content(), "(\n");
+    }
+
+    #[test]
+    fn insert_ctrl_q_aliases_ctrl_v_literal_insert() {
+        let mut editor = Editor::default();
+        editor.replace_buffer_content("\n");
+        handle_key(&mut editor, key('i'));
+
+        handle_key(&mut editor, ctrl_key('q'));
+        handle_key(&mut editor, ctrl_key('u'));
+        handle_key(&mut editor, esc_key());
+
+        assert_eq!(editor.buffer().content(), "\u{15}\n");
+    }
+
+    #[test]
+    fn insert_unhandled_ctrl_chord_does_not_type_its_letter() {
+        // Issue #281: i<C-v><C-y> wrote "vy" because unhandled ctrl chords
+        // fell through to the plain-character arm.
+        let mut editor = Editor::default();
+        editor.replace_buffer_content("\n");
+        handle_key(&mut editor, key('i'));
+        handle_key(&mut editor, key('A'));
+
+        handle_key(&mut editor, ctrl_key('g'));
+        handle_key(&mut editor, key('B'));
+        handle_key(&mut editor, esc_key());
+
+        assert_eq!(editor.mode, Mode::Normal);
+        assert_eq!(editor.buffer().content(), "AB\n");
+    }
+
+    #[test]
+    fn insert_altgr_control_alt_chord_still_types_its_char() {
+        // AltGr chars arrive as CONTROL|ALT on some terminals; they must keep
+        // typing even though bare CONTROL chords no longer fall through.
+        let mut editor = Editor::default();
+        editor.replace_buffer_content("\n");
+        handle_key(&mut editor, key('i'));
+
+        handle_key(
+            &mut editor,
+            KeyEvent::new(
+                KeyCode::Char('@'),
+                KeyModifiers::CONTROL | KeyModifiers::ALT,
+            ),
+        );
+        handle_key(&mut editor, esc_key());
+
+        assert_eq!(editor.buffer().content(), "@\n");
     }
 
     #[test]
