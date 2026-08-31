@@ -58,10 +58,10 @@ fn escape_cell(text: &str) -> String {
 /// A keybind table row from KEYBINDINGS.md: the raw key/description cells
 /// (already valid GFM, reprinted verbatim) plus the individual backticked
 /// key tokens from the key cell (rows can list alternates: `+` / `Enter`).
-struct DocumentedRow {
-    key_cell: String,
-    description_cell: String,
-    keys: Vec<String>,
+pub(crate) struct DocumentedRow {
+    pub(crate) key_cell: String,
+    pub(crate) description_cell: String,
+    pub(crate) keys: Vec<String>,
 }
 
 /// Split a GFM table row into cells, honoring `\|` escapes inside keys.
@@ -84,7 +84,7 @@ fn split_row_cells(line: &str) -> Vec<String> {
 }
 
 /// Every keybind row in KEYBINDINGS.md (lines shaped `| `key` | action |`).
-fn documented_rows() -> Vec<DocumentedRow> {
+pub(crate) fn documented_rows() -> Vec<DocumentedRow> {
     let text = fs::read_to_string(manifest_path("KEYBINDINGS.md")).expect("read KEYBINDINGS.md");
     text.lines()
         .filter(|line| line.starts_with("| `"))
