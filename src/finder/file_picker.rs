@@ -1,9 +1,13 @@
-use ignore::WalkBuilder;
+use ignore::{WalkBuilder, WalkState};
 use std::path::Path;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::mpsc;
 
 use super::FinderItem;
 
 /// File picker that respects .gitignore
+#[derive(Clone)]
 pub struct FilePicker {
     /// Maximum number of files to scan
     max_files: usize,
@@ -87,12 +91,27 @@ impl FilePicker {
         self
     }
 
-    /// List files in a directory, respecting .gitignore
+    /// List files in a directory, respecting .gitignore. Blocks until the
+    /// walk completes and returns the files sorted by path.
     pub fn list_files(&self, root: &Path) -> Vec<FinderItem> {
         let mut files = Vec::new();
+        self.list_files_streaming(root, usize::MAX, |batch| {
+            files.extend(batch);
+            true
+        });
+        files.sort_by(|a, b| a.display.cmp(&b.display));
+        files
+    }
 
-        // Use the ignore crate's WalkBuilder which respects .gitignore.
-        // filter_entry prevents descending into custom-ignored directories.
+    /// Walk the tree with parallel workers and emit unsorted batches of files
+    /// as they are found. Returning false from on_batch stops the walk early.
+    /// Callers wanting sorted output sort after the walk finishes.
+    pub fn list_files_streaming<F>(&self, root: &Path, batch_size: usize, mut on_batch: F)
+    where
+        F: FnMut(Vec<FinderItem>) -> bool,
+    {
+        // filter_entry prevents descending into custom-ignored directories,
+        // so files below them never reach the per-file closure.
         let root_buf = root.to_path_buf();
         let ignore_patterns = self.ignore_patterns.clone();
         let mut builder = WalkBuilder::new(root);
@@ -105,38 +124,73 @@ impl FilePicker {
             .filter_entry(move |entry| {
                 !Self::should_ignore_path(&root_buf, entry.path(), &ignore_patterns)
             });
-        let walker = builder.build();
+        let walker = builder.build_parallel();
 
-        for entry in walker.flatten() {
-            // Skip directories and root
-            if entry.file_type().map(|ft| ft.is_file()).unwrap_or(false) {
-                let path = entry.path();
+        let (tx, rx) = mpsc::channel::<FinderItem>();
+        let file_count = Arc::new(AtomicUsize::new(0));
+        let max_files = self.max_files;
+        let walk_root = root.to_path_buf();
 
-                // Check additional ignore patterns
-                if Self::should_ignore_path(root, path, &self.ignore_patterns) {
-                    continue;
-                }
+        // The parallel walker blocks until done, so it runs on its own thread
+        // while this one batches whatever the workers send.
+        let worker_count = Arc::clone(&file_count);
+        let walk_handle = std::thread::spawn(move || {
+            walker.run(|| {
+                let tx = tx.clone();
+                let count = Arc::clone(&worker_count);
+                let root = walk_root.clone();
+                Box::new(move |entry| {
+                    let Ok(entry) = entry else {
+                        return WalkState::Continue;
+                    };
+                    if !entry.file_type().map(|ft| ft.is_file()).unwrap_or(false) {
+                        return WalkState::Continue;
+                    }
+                    if count.fetch_add(1, Ordering::Relaxed) >= max_files {
+                        return WalkState::Quit;
+                    }
+                    let path = entry.path();
+                    let display = path
+                        .strip_prefix(&root)
+                        .unwrap_or(path)
+                        .to_string_lossy()
+                        .to_string();
+                    if tx
+                        .send(FinderItem::new(display, path.to_path_buf()))
+                        .is_err()
+                    {
+                        return WalkState::Quit;
+                    }
+                    WalkState::Continue
+                })
+            });
+            // Workers hold clones of tx; run() returning drops them all, which
+            // ends the batching loop below.
+        });
 
-                // Create relative path for display
-                let display = path
-                    .strip_prefix(root)
-                    .unwrap_or(path)
-                    .to_string_lossy()
-                    .to_string();
-
-                files.push(FinderItem::new(display, path.to_path_buf()));
-
-                // Limit number of files
-                if files.len() >= self.max_files {
+        let batch_size = batch_size.max(1);
+        let mut batch = Vec::new();
+        let mut emitted = 0usize;
+        let mut stopped = false;
+        while let Ok(item) = rx.recv() {
+            if emitted >= max_files {
+                continue; // drain so workers can quit
+            }
+            batch.push(item);
+            emitted += 1;
+            if batch.len() >= batch_size {
+                if !on_batch(std::mem::take(&mut batch)) {
+                    stopped = true;
                     break;
                 }
             }
         }
-
-        // Sort by path for consistent ordering
-        files.sort_by(|a, b| a.display.cmp(&b.display));
-
-        files
+        if !batch.is_empty() && !stopped {
+            let _ = on_batch(batch);
+        }
+        // Unblock any workers still sending, then wait for the walk to end.
+        drop(rx);
+        let _ = walk_handle.join();
     }
 
     /// Check if a path should be ignored based on custom patterns
@@ -237,6 +291,46 @@ mod tests {
 
         assert!(displays.iter().any(|path| path == "src/visible.rs"));
         assert!(!displays.iter().any(|path| path.contains("ignored")));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn streaming_walk_respects_max_files_cap() {
+        let root = unique_temp_dir("finder_walk_cap");
+        fs::create_dir_all(root.join("src")).unwrap();
+        for i in 0..10 {
+            fs::write(root.join("src").join(format!("f{i}.rs")), "x").unwrap();
+        }
+
+        let picker = FilePicker::new().with_max_files(3);
+        let files = picker.list_files(&root);
+
+        assert_eq!(files.len(), 3);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn streaming_walk_emits_multiple_batches() {
+        let root = unique_temp_dir("finder_walk_batches");
+        fs::create_dir_all(root.join("src")).unwrap();
+        for i in 0..5 {
+            fs::write(root.join("src").join(format!("f{i}.rs")), "x").unwrap();
+        }
+
+        let picker = FilePicker::new();
+        let mut total = 0;
+        let mut batches = 0;
+        picker.list_files_streaming(&root, 2, |batch| {
+            assert!(batch.len() <= 2);
+            total += batch.len();
+            batches += 1;
+            true
+        });
+
+        assert_eq!(total, 5);
+        assert!(batches >= 3, "batch size 2 over 5 files needs 3+ batches");
 
         let _ = fs::remove_dir_all(root);
     }

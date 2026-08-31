@@ -11228,10 +11228,9 @@ impl Editor {
     /// Open the fuzzy finder in file mode
     pub fn open_finder_files(&mut self) {
         let root = self.working_directory();
-        let started = Instant::now();
+        // The walk streams in the background; the finder_list_files metric is
+        // recorded by the main loop when the walk finishes.
         self.finder.open_files(&root);
-        self.flight_recorder
-            .record("finder_list_files", started.elapsed());
         self.mode = Mode::Finder;
         // Initialize preview for the first selected item
         self.update_finder_preview();
@@ -11539,7 +11538,7 @@ impl Editor {
     pub fn close_finder(&mut self) {
         self.mode = Mode::Normal;
         self.clear_status();
-        self.finder.cancel_grep_search();
+        self.finder.cancel_background_work();
         self.finder.clear_preview_cache();
     }
 

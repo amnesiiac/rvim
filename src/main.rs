@@ -2154,6 +2154,25 @@ fn main() -> anyhow::Result<()> {
             needs_redraw = true;
         }
 
+        // Apply async file walk batches. The walk itself runs off the UI
+        // loop; its total duration is recorded when the Finished message
+        // lands so the finder_list_files metric keeps its old meaning.
+        if editor.finder.poll_file_list() {
+            // Newly arrived rows may be visible already; top up their match
+            // highlights (normally done by the finder key handler).
+            editor.ensure_finder_visible_match_indices();
+            needs_redraw = true;
+        }
+        if let Some(walk_duration) = editor.finder.last_file_list_duration.take() {
+            record_metric!(
+                editor,
+                profile_stats,
+                profile_file,
+                "finder_list_files",
+                walk_duration
+            );
+        }
+
         // Check for pending finder preview updates (debounced)
         // This avoids the 10-40ms tree-sitter parsing on every keystroke
         if editor.finder.preview_update_pending {

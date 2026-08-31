@@ -26,6 +26,16 @@ enum GrepSearchMessage {
     },
 }
 
+enum FileListMessage {
+    Batch {
+        generation: u64,
+        items: Vec<FinderItem>,
+    },
+    Finished {
+        generation: u64,
+    },
+}
+
 /// Mode for the fuzzy finder
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FinderMode {
@@ -250,6 +260,17 @@ pub struct FuzzyFinder {
     grep_search_generation: u64,
     /// Receiver for the currently running async grep search
     grep_search_receiver: Option<Receiver<GrepSearchMessage>>,
+    /// Whether the async file walk is still streaming results
+    pub file_list_running: bool,
+    /// Monotonic generation used to discard stale file walk results
+    file_list_generation: u64,
+    /// Receiver for the currently running async file walk
+    file_list_receiver: Option<Receiver<FileListMessage>>,
+    /// When the current file walk started (for the finder_list_files metric)
+    file_list_started: Option<std::time::Instant>,
+    /// Wall time of the walk that just finished; the main loop takes this
+    /// and records it, since the finder has no recorder access.
+    pub last_file_list_duration: Option<std::time::Duration>,
 }
 
 impl FuzzyFinder {
@@ -279,6 +300,11 @@ impl FuzzyFinder {
             grep_search_running: false,
             grep_search_generation: 0,
             grep_search_receiver: None,
+            file_list_running: false,
+            file_list_generation: 0,
+            file_list_receiver: None,
+            file_list_started: None,
+            last_file_list_duration: None,
         }
     }
 
@@ -309,10 +335,17 @@ impl FuzzyFinder {
             grep_search_running: false,
             grep_search_generation: 0,
             grep_search_receiver: None,
+            file_list_running: false,
+            file_list_generation: 0,
+            file_list_receiver: None,
+            file_list_started: None,
+            last_file_list_duration: None,
         }
     }
 
-    /// Open the finder in file mode
+    /// Open the finder in file mode. The walk streams from a background
+    /// thread (poll_file_list applies batches), so the picker opens instantly
+    /// and the UI never blocks on the file system.
     pub fn open_files(&mut self, cwd: &std::path::Path) {
         self.mode = FinderMode::Files;
         self.input_mode = FinderInputMode::Insert;
@@ -321,12 +354,122 @@ impl FuzzyFinder {
         self.selected = 0;
         self.scroll_offset = 0;
         self.clear_preview_cache();
-        self.cancel_grep_search();
+        self.cancel_background_work();
 
-        // Populate files
-        self.items = self.file_picker.list_files(cwd);
-        self.filtered = (0..self.items.len()).collect();
+        self.items.clear();
+        self.filtered.clear();
         self.populated = true;
+
+        const FILE_LIST_BATCH_SIZE: usize = 500;
+        self.file_list_generation = self.file_list_generation.wrapping_add(1);
+        let generation = self.file_list_generation;
+        let picker = self.file_picker.clone();
+        let root = cwd.to_path_buf();
+        let (tx, rx) = mpsc::channel();
+        self.file_list_receiver = Some(rx);
+        self.file_list_running = true;
+        self.file_list_started = Some(std::time::Instant::now());
+
+        thread::spawn(move || {
+            let tx_finished = tx.clone();
+            picker.list_files_streaming(&root, FILE_LIST_BATCH_SIZE, |items| {
+                tx.send(FileListMessage::Batch { generation, items })
+                    .is_ok()
+            });
+            let _ = tx_finished.send(FileListMessage::Finished { generation });
+        });
+    }
+
+    fn cancel_file_list(&mut self) {
+        self.file_list_receiver = None;
+        self.file_list_running = false;
+        self.file_list_started = None;
+        self.file_list_generation = self.file_list_generation.wrapping_add(1);
+    }
+
+    /// Stop every background producer (grep search and file walk). Called by
+    /// all open_* entry points and on close so stale threads die promptly.
+    pub fn cancel_background_work(&mut self) {
+        self.cancel_grep_search();
+        self.cancel_file_list();
+    }
+
+    /// Apply pending async file walk results. Returns true when the list
+    /// changed and a redraw is needed.
+    pub fn poll_file_list(&mut self) -> bool {
+        let mut changed = false;
+
+        loop {
+            let message = match self.file_list_receiver.as_ref() {
+                Some(rx) => rx.try_recv(),
+                None => return changed,
+            };
+
+            match message {
+                Ok(FileListMessage::Batch { generation, items }) => {
+                    if self.mode != FinderMode::Files || generation != self.file_list_generation {
+                        continue;
+                    }
+
+                    let had_items = !self.items.is_empty();
+                    let new_start = self.items.len();
+                    self.items.extend(items);
+
+                    if self.query.is_empty() {
+                        self.filtered.extend(new_start..self.items.len());
+                    } else {
+                        // Score only the new arrivals and keep the filtered
+                        // list ordered; items already listed keep their score.
+                        let query = self.query.clone();
+                        for idx in new_start..self.items.len() {
+                            if let Some(score) = self
+                                .matcher
+                                .match_score(&query, self.items[idx].display.as_str())
+                            {
+                                self.items[idx].score = score;
+                                self.filtered.push(idx);
+                            }
+                        }
+                        let items = &self.items;
+                        self.filtered
+                            .sort_by_key(|&idx| (std::cmp::Reverse(items[idx].score), idx));
+                    }
+
+                    if !had_items {
+                        self.selected = 0;
+                        self.scroll_offset = 0;
+                        self.clear_preview_cache();
+                        if self.preview_enabled {
+                            self.preview_update_pending = true;
+                        }
+                    }
+
+                    changed = true;
+                }
+                Ok(FileListMessage::Finished { generation }) => {
+                    self.file_list_receiver = None;
+
+                    if self.mode == FinderMode::Files && generation == self.file_list_generation {
+                        self.file_list_running = false;
+                        self.last_file_list_duration =
+                            self.file_list_started.take().map(|start| start.elapsed());
+                        // The parallel walk arrives unordered; snap to the
+                        // stable alphabetical order now that it is complete.
+                        self.items.sort_by(|a, b| a.display.cmp(&b.display));
+                        self.update_filter();
+                        changed = true;
+                    }
+
+                    return changed;
+                }
+                Err(TryRecvError::Empty) => return changed,
+                Err(TryRecvError::Disconnected) => {
+                    self.file_list_receiver = None;
+                    self.file_list_running = false;
+                    return changed;
+                }
+            }
+        }
     }
 
     /// Open the finder in buffer mode
@@ -338,7 +481,7 @@ impl FuzzyFinder {
         self.selected = 0;
         self.scroll_offset = 0;
         self.clear_preview_cache();
-        self.cancel_grep_search();
+        self.cancel_background_work();
 
         // Populate buffers
         self.items = buffer_names
@@ -367,7 +510,7 @@ impl FuzzyFinder {
         self.selected = 0;
         self.scroll_offset = 0;
         self.clear_preview_cache();
-        self.cancel_grep_search();
+        self.cancel_background_work();
 
         self.items = lines
             .into_iter()
@@ -395,7 +538,7 @@ impl FuzzyFinder {
         self.selected = 0;
         self.scroll_offset = 0;
         self.clear_preview_cache();
-        self.cancel_grep_search();
+        self.cancel_background_work();
 
         // Populate harpoon files with slot numbers
         self.items = files
@@ -424,7 +567,7 @@ impl FuzzyFinder {
         self.selected = 0;
         self.scroll_offset = 0;
         self.clear_preview_cache();
-        self.cancel_grep_search();
+        self.cancel_background_work();
 
         // Populate marks
         self.items = marks
@@ -455,7 +598,7 @@ impl FuzzyFinder {
         self.selected = 0;
         self.scroll_offset = 0;
         self.clear_preview_cache();
-        self.cancel_grep_search();
+        self.cancel_background_work();
 
         self.items = terminal_items;
         self.filtered = (0..self.items.len()).collect();
@@ -476,7 +619,7 @@ impl FuzzyFinder {
         self.selected = 0;
         self.scroll_offset = 0;
         self.clear_preview_cache();
-        self.cancel_grep_search();
+        self.cancel_background_work();
 
         self.items = items;
         self.populated = true;
@@ -492,7 +635,7 @@ impl FuzzyFinder {
         self.selected = 0;
         self.scroll_offset = 0;
         self.clear_preview_cache();
-        self.cancel_grep_search();
+        self.cancel_background_work();
         self.preview_enabled = true;
 
         self.items = items;
@@ -510,7 +653,7 @@ impl FuzzyFinder {
         self.scroll_offset = 0;
         self.clear_preview_cache();
         self.cwd = cwd.to_path_buf();
-        self.cancel_grep_search();
+        self.cancel_background_work();
 
         // Start with empty results - will populate as user types
         self.items.clear();
@@ -528,7 +671,7 @@ impl FuzzyFinder {
         self.scroll_offset = 0;
         self.clear_preview_cache();
         self.cwd = cwd.to_path_buf();
-        self.cancel_grep_search();
+        self.cancel_background_work();
 
         if query.len() >= 2 {
             self.grep_search_pending = true;
@@ -550,7 +693,7 @@ impl FuzzyFinder {
         self.selected = 0;
         self.scroll_offset = 0;
         self.clear_preview_cache();
-        self.cancel_grep_search();
+        self.cancel_background_work();
 
         self.items = diagnostic_items;
         self.filtered = (0..self.items.len()).collect();
@@ -774,7 +917,7 @@ impl FuzzyFinder {
                 } else {
                     self.items.clear();
                     self.filtered.clear();
-                    self.cancel_grep_search();
+                    self.cancel_background_work();
                     self.clear_preview_cache();
                 }
             }
@@ -806,6 +949,13 @@ impl FuzzyFinder {
                                 .map(|score| (idx, score))
                         })
                         .collect();
+
+                    // Remember scores on the items: while the file walk is
+                    // still streaming, poll_file_list merges new arrivals into
+                    // the filtered order by item score.
+                    for (idx, score) in &scored {
+                        self.items[*idx].score = *score;
+                    }
 
                     // Sort by score (higher is better); stable so equal scores
                     // keep their item order.
@@ -857,6 +1007,8 @@ impl FuzzyFinder {
     pub fn status_text(&self) -> String {
         if self.mode == FinderMode::Grep && self.grep_search_running {
             format!("{}/{} searching", self.filtered.len(), self.items.len())
+        } else if self.mode == FinderMode::Files && self.file_list_running {
+            format!("{}/{} scanning", self.filtered.len(), self.items.len())
         } else {
             format!("{}/{}", self.filtered.len(), self.items.len())
         }
@@ -908,7 +1060,7 @@ impl FuzzyFinder {
         } else {
             self.items.clear();
             self.filtered.clear();
-            self.cancel_grep_search();
+            self.cancel_background_work();
             self.clear_preview_cache();
         }
     }
@@ -1251,7 +1403,9 @@ impl Default for FuzzyFinder {
 
 #[cfg(test)]
 mod tests {
-    use super::{FinderInputMode, FinderItem, FinderMode, FuzzyFinder, GrepSearchMessage};
+    use super::{
+        FileListMessage, FinderInputMode, FinderItem, FinderMode, FuzzyFinder, GrepSearchMessage,
+    };
     use std::fs;
     use std::path::{Path, PathBuf};
     use std::sync::mpsc;
@@ -1978,5 +2132,132 @@ mod tests {
             p95 <= budget,
             "finder filter keystroke p95 exceeded budget: p95={p95:?} budget={budget:?}"
         );
+    }
+
+    fn wait_for_file_list(finder: &mut FuzzyFinder) {
+        for _ in 0..200 {
+            finder.poll_file_list();
+            if !finder.file_list_running {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        panic!("async file list did not finish");
+    }
+
+    #[test]
+    fn open_files_streams_and_sorts_alphabetically_on_finish() {
+        let root = unique_temp_dir("finder_stream_files");
+        fs::create_dir_all(root.join("src")).unwrap();
+        for name in ["zeta.rs", "alpha.rs", "midpoint.rs"] {
+            fs::write(root.join("src").join(name), "x").unwrap();
+        }
+
+        let mut finder = FuzzyFinder::new();
+        finder.open_files(&root);
+        assert!(
+            finder.populated,
+            "picker is usable before the walk finishes"
+        );
+        wait_for_file_list(&mut finder);
+
+        let displays: Vec<&str> = finder
+            .filtered
+            .iter()
+            .map(|&idx| finder.items[idx].display.as_str())
+            .collect();
+        assert_eq!(
+            displays,
+            vec!["src/alpha.rs", "src/midpoint.rs", "src/zeta.rs"],
+            "finished list must be sorted by path"
+        );
+        assert!(!finder.file_list_running);
+        assert!(finder.last_file_list_duration.is_some());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn file_list_batches_merge_into_scored_order_while_query_active() {
+        let mut finder = FuzzyFinder::new();
+        finder.mode = FinderMode::Files;
+        finder.populated = true;
+        finder.file_list_generation = 3;
+        finder.file_list_running = true;
+
+        let (tx, rx) = mpsc::channel();
+        finder.file_list_receiver = Some(rx);
+
+        tx.send(FileListMessage::Batch {
+            generation: 3,
+            items: vec![
+                FinderItem::new("src/other.rs".to_string(), PathBuf::from("src/other.rs")),
+                FinderItem::new("src/main.rs".to_string(), PathBuf::from("src/main.rs")),
+            ],
+        })
+        .unwrap();
+        assert!(finder.poll_file_list());
+
+        for ch in "main".chars() {
+            finder.insert_char(ch);
+        }
+        assert_eq!(finder.filtered.len(), 1);
+
+        // A batch arriving after typing must be scored against the live query
+        // and merged in order, not appended blindly.
+        tx.send(FileListMessage::Batch {
+            generation: 3,
+            items: vec![
+                FinderItem::new(
+                    "src/main_helpers.rs".to_string(),
+                    PathBuf::from("src/main_helpers.rs"),
+                ),
+                FinderItem::new("src/zzz.rs".to_string(), PathBuf::from("src/zzz.rs")),
+            ],
+        })
+        .unwrap();
+        assert!(finder.poll_file_list());
+
+        let displays: Vec<&str> = finder
+            .filtered
+            .iter()
+            .map(|&idx| finder.items[idx].display.as_str())
+            .collect();
+        assert_eq!(displays.len(), 2, "zzz.rs does not match the query");
+        assert!(displays.contains(&"src/main.rs"));
+        assert!(displays.contains(&"src/main_helpers.rs"));
+        let scores: Vec<u32> = finder
+            .filtered
+            .iter()
+            .map(|&idx| finder.items[idx].score)
+            .collect();
+        assert!(
+            scores.windows(2).all(|pair| pair[0] >= pair[1]),
+            "filtered must stay ordered by score: {scores:?}"
+        );
+    }
+
+    #[test]
+    fn stale_file_list_batches_are_discarded() {
+        let mut finder = FuzzyFinder::new();
+        finder.mode = FinderMode::Files;
+        finder.populated = true;
+        finder.file_list_generation = 5;
+        finder.file_list_running = true;
+
+        let (tx, rx) = mpsc::channel();
+        finder.file_list_receiver = Some(rx);
+
+        tx.send(FileListMessage::Batch {
+            generation: 4,
+            items: vec![FinderItem::new(
+                "stale.rs".to_string(),
+                PathBuf::from("stale.rs"),
+            )],
+        })
+        .unwrap();
+
+        assert!(!finder.poll_file_list());
+        assert!(finder.items.is_empty());
     }
 }
