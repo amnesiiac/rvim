@@ -309,6 +309,17 @@ impl Default for GrepSearcher {
 fn find_case_insensitive_char_index(line: &str, pattern: &str) -> usize {
     let pattern_lower = pattern.to_lowercase();
 
+    // Lowercase the line once and substring-search it. Falls back to the
+    // per-position scan when lowercasing changes the char count (rare
+    // expansions like 'İ'), where lowered positions no longer map 1:1.
+    let line_lower = line.to_lowercase();
+    if line_lower.chars().count() == line.chars().count() {
+        return line_lower
+            .find(&pattern_lower)
+            .map(|byte_pos| line_lower[..byte_pos].chars().count())
+            .unwrap_or(0);
+    }
+
     for (char_idx, (byte_idx, _)) in line.char_indices().enumerate() {
         if line[byte_idx..].to_lowercase().starts_with(&pattern_lower) {
             return char_idx;
