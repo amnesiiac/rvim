@@ -3069,7 +3069,10 @@ impl Editor {
     /// Refresh git-backed explorer markers.
     pub fn refresh_explorer_git_statuses(&mut self) {
         if let Some(repo) = &self.git_repo {
+            let started = Instant::now();
             let mut statuses = repo.file_statuses();
+            self.flight_recorder
+                .record("git_file_statuses", started.elapsed());
             for buffer in &self.buffers {
                 if buffer.dirty {
                     if let Some(path) = &buffer.path {
@@ -11185,7 +11188,10 @@ impl Editor {
     /// Open the fuzzy finder in file mode
     pub fn open_finder_files(&mut self) {
         let root = self.working_directory();
+        let started = Instant::now();
         self.finder.open_files(&root);
+        self.flight_recorder
+            .record("finder_list_files", started.elapsed());
         self.mode = Mode::Finder;
         // Initialize preview for the first selected item
         self.update_finder_preview();
@@ -11808,9 +11814,11 @@ impl Editor {
 
     fn parse_current_buffer(&mut self) {
         let buffer_idx = self.current_buffer_idx;
-        let buffer = &self.buffers[buffer_idx];
-        self.syntax.parse(buffer);
-        self.last_syntax_version = buffer.version();
+        let started = Instant::now();
+        self.syntax.parse(&self.buffers[buffer_idx]);
+        self.flight_recorder
+            .record("syntax_parse", started.elapsed());
+        self.last_syntax_version = self.buffers[buffer_idx].version();
         self.last_edit_at = None;
     }
 
@@ -14116,6 +14124,34 @@ mod tests {
         assert_eq!(editor.current_diagnostics()[0].col_start, 2);
         assert_eq!(editor.current_diagnostics()[0].col_end, 3);
         assert_eq!(editor.all_diagnostics_at_cursor().len(), 1);
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn perf_metrics_record_syntax_parse_and_git_file_statuses() {
+        let tmp = unique_temp_dir("nevi_perf_metrics");
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let root = tmp.canonicalize().expect("canonical temp dir");
+        let path = root.join("main.rs");
+        std::fs::write(&path, "fn main() {}\n").expect("write file");
+        let repo = git2::Repository::init(&root).expect("init repo");
+        commit_file(&repo, Path::new("main.rs"), "initial");
+
+        let mut editor = Editor::default();
+        editor.set_project_root(root.clone());
+        editor.init_git();
+        editor.open_file(path).expect("open file");
+
+        let names: Vec<&str> = editor.flight_recorder.events().map(|e| e.name).collect();
+        assert!(
+            names.contains(&"git_file_statuses"),
+            "init_git must record the full-repo status scan: {names:?}"
+        );
+        assert!(
+            names.contains(&"syntax_parse"),
+            "opening a .rs file must record the parse: {names:?}"
+        );
 
         let _ = std::fs::remove_dir_all(&tmp);
     }

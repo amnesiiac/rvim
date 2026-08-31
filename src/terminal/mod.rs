@@ -9769,14 +9769,23 @@ fn handle_finder_mode(editor: &mut Editor, key: KeyEvent) {
 
         // Backspace
         (KeyModifiers::NONE, KeyCode::Backspace) => {
+            // finder_filter times the query edit + the full re-filter it triggers.
+            let started = Instant::now();
             editor.finder.delete_char_before();
+            editor
+                .flight_recorder
+                .record("finder_filter", started.elapsed());
             selection_changed = true; // Filter might have changed selection
         }
 
         // Regular character - insert mode types, normal mode switches to insert first
         (_, KeyCode::Char(c)) if !c.is_control() => {
             // insert_char already switches to insert mode if needed
+            let started = Instant::now();
             editor.finder.insert_char(c);
+            editor
+                .flight_recorder
+                .record("finder_filter", started.elapsed());
             selection_changed = true; // Filter might have changed selection
         }
 

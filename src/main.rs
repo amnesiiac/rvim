@@ -370,16 +370,47 @@ fn main() -> anyhow::Result<()> {
             }
         };
     }
+    // Metrics go to the always-on flight recorder only; when NEVI_PROFILE=1,
+    // drain_profile_metrics! copies new events into PerfStats and the log file.
+    // Editor-internal code records the same way (editor.flight_recorder.record),
+    // so deep metrics like syntax_parse reach the profile summary too.
     macro_rules! record_metric {
         ($editor:expr, $stats:expr, $file:expr, $name:literal, $duration:expr) => {{
-            let elapsed = $duration;
-            $editor.flight_recorder.record($name, elapsed);
+            $editor.flight_recorder.record($name, $duration);
+        }};
+    }
+    // Copy flight-recorder events newer than `$seq` into the profile stats and
+    // log, then advance `$seq`. The ring can wrap within one long operation
+    // (e.g. thousands of syntax_parse events from a single gg=G), so report
+    // the gap instead of silently undercounting.
+    macro_rules! drain_profile_metrics {
+        ($editor:expr, $stats:expr, $file:expr, $seq:expr) => {{
             if profile_enabled {
-                if let Some(ref mut stats) = $stats {
-                    stats.record($name, elapsed);
+                let first_retained = $editor.flight_recorder.events().next().map(|e| e.sequence);
+                if let Some(first) = first_retained {
+                    if first > $seq {
+                        if let Some(Some(ref mut f)) = $file {
+                            let _ =
+                                writeln!(f, "# {} events dropped by ring overflow", first - $seq);
+                        }
+                    }
                 }
-                if let Some(Some(ref mut f)) = $file {
-                    let _ = writeln!(f, "{}: {:?}", $name, elapsed);
+                for event in $editor.flight_recorder.events() {
+                    if event.sequence < $seq {
+                        continue;
+                    }
+                    let elapsed = std::time::Duration::from_micros(event.duration_us as u64);
+                    if let Some(ref mut stats) = $stats {
+                        stats.record(event.name, elapsed);
+                    }
+                    if let Some(Some(ref mut f)) = $file {
+                        let _ = writeln!(f, "{}: {:?}", event.name, elapsed);
+                    }
+                }
+                // The exit-path drain's bump is never read again; that's fine.
+                #[allow(unused_assignments)]
+                {
+                    $seq = $editor.flight_recorder.next_sequence();
                 }
             }
         }};
@@ -402,6 +433,16 @@ fn main() -> anyhow::Result<()> {
 
     // Initialize editor with settings
     let mut editor = Editor::new(settings);
+
+    // Profiling drains the flight recorder into PerfStats each loop iteration,
+    // but a single long operation (gg=G emits one syntax_parse per line) can
+    // outrun the default 2048-event ring before the drain runs. Give profiling
+    // sessions enough headroom that per-event counts stay exact (~3MB).
+    if profile_enabled {
+        editor.flight_recorder = nevi::perf::FlightRecorder::with_capacity(65_536);
+    }
+    // First flight-recorder sequence not yet drained into the profile log.
+    let mut profiled_metric_seq: u64 = 0;
 
     // Restore persisted session state (macros, registers, marks, search
     // history). A missing or corrupt file loads as empty state.
@@ -641,6 +682,11 @@ fn main() -> anyhow::Result<()> {
 
     // Setup is done; freeze the start screen's "ready in Nms" number here.
     editor.startup_ready_ms = Some(process_start.elapsed().as_millis());
+    profile!(
+        profile_file,
+        "startup_ready_ms: {}",
+        process_start.elapsed().as_millis()
+    );
 
     // Main event loop
     let mut loop_start = Instant::now();
@@ -1144,23 +1190,21 @@ fn main() -> anyhow::Result<()> {
                         // Clone path once for reuse in LSP and Copilot notifications
                         let current_buffer_path = editor.buffer().path.clone();
 
-                        // Send document change to LSP (only if ready for this file type)
+                        // Send document change to LSP (only if ready for this file type).
+                        // The metric covers the full per-keystroke cost: the
+                        // rope→String serialization plus the full-document send.
                         if let Some(ref mut mlsp) = multi_lsp {
                             if let Some(ref path) = current_buffer_path {
                                 if mlsp.is_ready_for_file(path) {
                                     let t_lsp = Instant::now();
                                     let text = editor.buffer().content();
-                                    profile!(
-                                        profile_file,
-                                        "buffer.content() for LSP: {:?}",
-                                        t_lsp.elapsed()
-                                    );
-                                    let t_send = Instant::now();
                                     let _ = mlsp.did_change(path, &text);
-                                    profile!(
+                                    record_metric!(
+                                        editor,
+                                        profile_stats,
                                         profile_file,
-                                        "mlsp.did_change: {:?}",
-                                        t_send.elapsed()
+                                        "lsp_did_change",
+                                        t_lsp.elapsed()
                                     );
                                 }
                             }
@@ -1175,9 +1219,11 @@ fn main() -> anyhow::Result<()> {
                                     let text = editor.buffer().content();
                                     let version = editor.buffer().version() as i32;
                                     let _ = cop.did_change(&uri, version, &text);
-                                    profile!(
+                                    record_metric!(
+                                        editor,
+                                        profile_stats,
                                         profile_file,
-                                        "copilot.did_change: {:?}",
+                                        "copilot_did_change",
                                         t_cop.elapsed()
                                     );
                                 }
@@ -2059,7 +2105,17 @@ fn main() -> anyhow::Result<()> {
 
         // Poll for async grep results. The search itself runs off the UI loop;
         // this only applies the newest matching result set when it is ready.
+        // Only batch applications are recorded — an empty poll is nanoseconds
+        // and would drown the flight recorder at one event per loop iteration.
+        let t_grep_poll = Instant::now();
         if editor.finder.poll_grep_search() {
+            record_metric!(
+                editor,
+                profile_stats,
+                profile_file,
+                "grep_poll_apply",
+                t_grep_poll.elapsed()
+            );
             needs_redraw = true;
         }
 
@@ -2218,8 +2274,11 @@ fn main() -> anyhow::Result<()> {
                 redraw_from_input = false;
             }
         }
+
+        drain_profile_metrics!(editor, profile_stats, profile_file, profiled_metric_seq);
     }
 
+    drain_profile_metrics!(editor, profile_stats, profile_file, profiled_metric_seq);
     if profile_enabled {
         if let (Some(stats), Some(Some(file))) = (profile_stats.as_ref(), profile_file.as_mut()) {
             let _ = stats.write_summary(file);
