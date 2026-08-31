@@ -232,6 +232,61 @@ const KEYBIND_COVERAGE: &[KeybindCoverage] = &[
         "delete with line-end motion",
     ),
     vim_oracle("caw", "Change around word", "change around word"),
+    // Text-object batch: one entry per documented object family.
+    vim_oracle("iw", "Inner/around word objects", "delete inner word"),
+    vim_oracle("iW", "Inner/around WORD objects", "delete inner big word"),
+    vim_oracle(
+        "i\"",
+        "Inner/around double-quote objects",
+        "change inner double quotes from before the string",
+    ),
+    vim_oracle(
+        "i'",
+        "Inner/around single-quote objects",
+        "delete inner single quotes",
+    ),
+    vim_oracle(
+        "i`",
+        "Inner/around backtick objects",
+        "delete inner backticks",
+    ),
+    vim_oracle(
+        "i(",
+        "Inner/around parentheses objects",
+        "delete inner parens",
+    ),
+    vim_oracle(
+        "ib",
+        "Inner/around parentheses alias",
+        "inner parens via b alias",
+    ),
+    vim_oracle(
+        "i{",
+        "Inner/around brace objects",
+        "nested braces inner targets innermost",
+    ),
+    vim_oracle("iB", "Inner/around brace alias", "inner braces via B alias"),
+    vim_oracle(
+        "i[",
+        "Inner/around bracket objects",
+        "delete inner brackets",
+    ),
+    vim_oracle(
+        "i<",
+        "Inner/around angle bracket objects",
+        "delete inner angle brackets",
+    ),
+    vim_oracle(
+        "ip",
+        "Inner/around paragraph objects",
+        "delete inner paragraph",
+    ),
+    vim_oracle(
+        "is",
+        "Inner/around sentence objects",
+        "delete inner sentence",
+    ),
+    vim_oracle("it", "Inner/around tag objects", "delete inner tag"),
     // Editing-core batch: bare operators, substitute family, paste
     // variants, replace, case changing, joins.
     vim_oracle("d", "Delete with a motion", "delete word"),

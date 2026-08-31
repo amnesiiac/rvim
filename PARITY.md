@@ -10,13 +10,13 @@ the test suite enforces, so it cannot drift from what is actually verified.
 ## Summary
 
 - **339 keybinds implemented** ([KEYBINDINGS.md](KEYBINDINGS.md)), **88 planned** ([KEYBINDS_ROADMAP.md](KEYBINDS_ROADMAP.md))
-- **125 keybinds in the coverage inventory**, each mapped to the automated test that protects it:
-  - 117 verified against real Neovim (v0.11.3) by the Vim oracle
+- **139 keybinds in the coverage inventory**, each mapped to the automated test that protects it:
+  - 131 verified against real Neovim (v0.11.3) by the Vim oracle
   - 7 protected by focused Nevi regression tests
   - 1 covered as default-keymap plumbing with dedicated tests
-- **309 oracle cases**: motions (144), editing (105), insert-entry (11), open-line (20), replace (27), undo-redo (2)
+- **339 oracle cases**: motions (144), editing (105), insert-entry (11), open-line (20), replace (27), text-objects (30), undo-redo (2)
 - **0 tracked coverage gaps**
-- **168 of 437 documented keybind rows map to an inventoried keybind**; the rest work today but are not yet individually tracked ([full list below](#documented-but-not-yet-inventoried))
+- **181 of 437 documented keybind rows map to an inventoried keybind**; the rest work today but are not yet individually tracked ([full list below](#documented-but-not-yet-inventoried))
 
 ## How the Vim oracle works
 
@@ -107,6 +107,20 @@ claim protection.
 | `db` | Delete to previous word start | `delete to previous word start` |
 | `d$` | Delete through line end | `delete with line-end motion` |
 | `caw` | Change around word | `change around word` |
+| `iw` | Inner/around word objects | `delete inner word` |
+| `iW` | Inner/around WORD objects | `delete inner big word` |
+| `i"` | Inner/around double-quote objects | `change inner double quotes from before the string` |
+| `i'` | Inner/around single-quote objects | `delete inner single quotes` |
+| `i`` | Inner/around backtick objects | `delete inner backticks` |
+| `i(` | Inner/around parentheses objects | `delete inner parens` |
+| `ib` | Inner/around parentheses alias | `inner parens via b alias` |
+| `i{` | Inner/around brace objects | `nested braces inner targets innermost` |
+| `iB` | Inner/around brace alias | `inner braces via B alias` |
+| `i[` | Inner/around bracket objects | `delete inner brackets` |
+| `i<` | Inner/around angle bracket objects | `delete inner angle brackets` |
+| `ip` | Inner/around paragraph objects | `delete inner paragraph` |
+| `is` | Inner/around sentence objects | `delete inner sentence` |
+| `it` | Inner/around tag objects | `delete inner tag` |
 | `d` | Delete with a motion | `delete word` |
 | `c` | Change with a motion | `change inner word` |
 | `y` | Yank with a motion | `yank to line end` |
@@ -188,7 +202,7 @@ like `dw` are tracked as single inventory entries, so their building-block
 rows may already be covered compositionally.)
 
 <details>
-<summary>269 untracked rows</summary>
+<summary>256 untracked rows</summary>
 
 | Keybind | Behavior |
 |---------|----------|
@@ -248,20 +262,7 @@ rows may already be covered compositionally.)
 | `gc` | Toggle comment on selection |
 | `S{char}` | Surround selection with character |
 | `gv` | Reselect last visual selection (from normal mode) |
-| `iw` / `aw` | Inner/around word |
-| `iW` / `aW` | Inner/around WORD |
-| `i"` / `a"` | Inner/around double quotes |
-| `i'` / `a'` | Inner/around single quotes |
 | `` i` `` / `` a` `` | Inner/around backticks |
-| `i(` / `a(` | Inner/around parentheses |
-| `ib` / `ab` | Inner/around parentheses (alias) |
-| `i{` / `a{` | Inner/around braces |
-| `iB` / `aB` | Inner/around braces (alias) |
-| `i[` / `a[` | Inner/around brackets |
-| `i<` / `a<` | Inner/around angle brackets |
-| `ip` / `ap` | Inner/around paragraph |
-| `is` / `as` | Inner/around sentence |
-| `it` / `at` | Inner/around HTML/XML tag |
 | `"a` - `"z` | Named registers |
 | `"A` - `"Z` | Append to named registers |
 | `"+` | System clipboard |

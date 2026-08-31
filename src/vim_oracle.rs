@@ -9,11 +9,13 @@ mod editing_cases;
 mod insert_entry_cases;
 mod open_line_cases;
 mod replace_cases;
+mod text_object_cases;
 
 use editing_cases::EDITING_CASES;
 use insert_entry_cases::INSERT_ENTRY_CASES;
 use open_line_cases::OPEN_LINE_CASES;
 use replace_cases::REPLACE_CASES;
+use text_object_cases::TEXT_OBJECT_CASES;
 
 #[derive(Debug, Clone, Copy)]
 struct OracleCase {
@@ -1008,6 +1010,10 @@ const ORACLE_CATEGORIES: &[OracleCategory] = &[
         cases: REPLACE_CASES,
     },
     OracleCategory {
+        name: "text-objects",
+        cases: TEXT_OBJECT_CASES,
+    },
+    OracleCategory {
         name: "undo-redo",
         cases: UNDO_REDO_CASES,
     },
@@ -1263,7 +1269,7 @@ fn run_neovim_case_with_options(
 fn neovim_snapshot_lua(keys: &str, text_rows: u16, wrap: bool) -> String {
     format!(
         r#"
-local keys = vim.api.nvim_replace_termcodes("{}", true, false, true)
+local keys = vim.api.nvim_replace_termcodes("{}", true, true, true)
 vim.o.scrolloff = {}
 vim.o.wrap = {}
 vim.api.nvim_win_set_width(0, {})

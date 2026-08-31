@@ -4,6 +4,13 @@
 
 ### Vim Compatibility
 
+- Fixed the quote text objects (`i"`, `a"`, `i'`, `a'`, `` i` ``, `` a` ``) doing nothing when the cursor sits before the first quote. They now seek forward on the line, as in Vim, so `ci"` works from the start of the line.
+- Fixed `a"` and friends not spanning surrounding whitespace. They now take the trailing whitespace after the closing quote, or the leading whitespace when there is none trailing.
+- Fixed `ip` and `ap` on a blank line operating on the next paragraph instead of the blank lines themselves, and `ap` after a paragraph now takes all trailing blank lines instead of just one.
+- Extended Vim oracle coverage with a dedicated text-objects category: words, WORDs, all quote styles, all bracket pairs and their aliases, paragraphs, sentences, and tags, verified against real Neovim and tracked in `PARITY.md`. Also fixed the oracle harness dropping Vim's `<lt>` notation on the Neovim side.
+
+### Vim Compatibility
+
 - The mouse now works like nvim with `mouse=nvi`: the wheel scrolls the file instead of the terminal scrollback, targeting the pane under the pointer, 3 lines per tick. Horizontal wheel scrolls 6 columns with wrap off. Left click focuses a pane and moves the cursor (insert mode stays insert, a plain click drops visual mode), the wheel and clicks also drive the explorer selection, and the wheel scrolls the finder and markdown previews. On by default; `mouse = false` under `[editor]` or `:set nomouse` / `:set mouse=` turns it off, which also makes `mouse` the first option `:set` actually applies. While captured, terminal-native selection needs the terminal's bypass key (Option in iTerm2, Shift elsewhere). (#274)
 - Added `Ctrl+e` / `Ctrl+y` to scroll the view one line (or a count of lines) without moving the cursor until it would leave the screen. Verified against real Neovim in the oracle suite, including the scrolloff edge cases at the top and bottom of the file.
 - `cw` and `cW` now follow Vim's special case (`:h cw`): on a non-blank they change only up to the end of the word, leaving the trailing whitespace in place, and on the last character of a word they change just that character. On whitespace they still behave like `dw` plus insert. (#272)

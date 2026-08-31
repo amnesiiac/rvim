@@ -8509,29 +8509,49 @@ impl Editor {
                 .unwrap_or(true)
         };
 
-        let cursor_line = self.cursor.line.min(line_count.saturating_sub(1));
-        let line = if is_blank(cursor_line) {
-            let next = (cursor_line + 1..line_count).find(|&line| !is_blank(line));
-            next.or_else(|| (0..cursor_line).rev().find(|&line| !is_blank(line)))?
-        } else {
-            cursor_line
-        };
+        let last_line = buffer.addressable_line_count().saturating_sub(1);
+        let cursor_line = self.cursor.line.min(last_line);
 
-        let mut start_line = line;
+        // Vim on a blank line: ip selects the blank-line run itself, and ap
+        // selects the blank run plus the following paragraph (:h ap).
+        if is_blank(cursor_line) {
+            let mut start_line = cursor_line;
+            while start_line > 0 && is_blank(start_line - 1) {
+                start_line -= 1;
+            }
+            let mut end_line = cursor_line;
+            while end_line + 1 <= last_line && is_blank(end_line + 1) {
+                end_line += 1;
+            }
+            if modifier == TextObjectModifier::Around {
+                while end_line + 1 <= last_line && !is_blank(end_line + 1) {
+                    end_line += 1;
+                }
+            }
+            return Some((start_line, 0, end_line, buffer.line_len(end_line)));
+        }
+
+        let mut start_line = cursor_line;
         while start_line > 0 && !is_blank(start_line - 1) {
             start_line -= 1;
         }
 
-        let mut end_line = line;
-        while end_line + 1 < line_count && !is_blank(end_line + 1) {
+        let mut end_line = cursor_line;
+        while end_line + 1 <= last_line && !is_blank(end_line + 1) {
             end_line += 1;
         }
 
         if modifier == TextObjectModifier::Around {
-            if end_line + 1 < line_count && is_blank(end_line + 1) {
-                end_line += 1;
-            } else if start_line > 0 && is_blank(start_line - 1) {
-                start_line -= 1;
+            // Vim's ap takes ALL trailing blank lines, or all leading ones
+            // when there are none trailing.
+            if end_line + 1 <= last_line && is_blank(end_line + 1) {
+                while end_line + 1 <= last_line && is_blank(end_line + 1) {
+                    end_line += 1;
+                }
+            } else {
+                while start_line > 0 && is_blank(start_line - 1) {
+                    start_line -= 1;
+                }
             }
         }
 
@@ -8829,9 +8849,11 @@ impl Editor {
                     last_quote = Some(i);
                     in_quotes = true;
                 } else {
-                    // Found a pair
+                    // Found a pair. Vim takes the pair containing the cursor
+                    // OR the first pair after it — quote objects seek
+                    // forward on the line (:h a').
                     if let Some(start) = last_quote {
-                        if col >= start && col <= i {
+                        if col <= i {
                             open_pos = Some(start);
                             close_pos = Some(i);
                             break;
@@ -8855,7 +8877,25 @@ impl Editor {
                     None
                 }
             }
-            TextObjectModifier::Around => Some((line, open, line, close)),
+            TextObjectModifier::Around => {
+                // Vim's a" spans through trailing whitespace, or leading
+                // whitespace when there is none trailing (:h a').
+                let mut end = close;
+                while chars.get(end + 1).is_some_and(|c| *c == ' ' || *c == '\t') {
+                    end += 1;
+                }
+                let mut start = open;
+                if end == close {
+                    while start > 0
+                        && chars
+                            .get(start - 1)
+                            .is_some_and(|c| *c == ' ' || *c == '\t')
+                    {
+                        start -= 1;
+                    }
+                }
+                Some((line, start, line, end))
+            }
         }
     }
 
