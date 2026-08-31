@@ -784,37 +784,34 @@ impl FuzzyFinder {
                     // No filter, show all items
                     self.filtered = (0..self.items.len()).collect();
                 } else {
-                    // Filter and sort by match score, and get match indices
+                    // Score-and-sort only. Highlight indices are only ever read
+                    // for the rows on screen, so ensure_visible_match_indices
+                    // computes them lazily instead of paying for every match
+                    // on every keystroke.
                     let mode = self.mode;
                     let query = self.query.clone();
                     let matcher = &mut self.matcher;
-                    let mut scored: Vec<(usize, u32, Vec<usize>)> = self
+                    let mut scored: Vec<(usize, u32)> = self
                         .items
                         .iter()
                         .enumerate()
                         .filter_map(|(idx, item)| {
-                            let (match_start, match_text) = if mode == FinderMode::GitChanges {
-                                git_changes_display_path(&item.display)
+                            let match_text = if mode == FinderMode::GitChanges {
+                                git_changes_display_path(&item.display).1
                             } else {
-                                (0, item.display.as_str())
+                                item.display.as_str()
                             };
-                            matcher.match_score(&query, match_text).map(|score| {
-                                let indices =
-                                    offset_match_indices(matcher, &query, match_text, match_start);
-                                (idx, score, indices)
-                            })
+                            matcher
+                                .match_score(&query, match_text)
+                                .map(|score| (idx, score))
                         })
                         .collect();
 
-                    // Sort by score (higher is better)
+                    // Sort by score (higher is better); stable so equal scores
+                    // keep their item order.
                     scored.sort_by(|a, b| b.1.cmp(&a.1));
 
-                    // Store match indices in items
-                    for (idx, _, indices) in &scored {
-                        self.items[*idx].match_indices = indices.clone();
-                    }
-
-                    self.filtered = scored.into_iter().map(|(idx, _, _)| idx).collect();
+                    self.filtered = scored.into_iter().map(|(idx, _)| idx).collect();
                 }
             }
         }
@@ -822,6 +819,38 @@ impl FuzzyFinder {
         // Reset selection
         self.selected = 0;
         self.scroll_offset = 0;
+    }
+
+    /// Compute match highlight indices for just the rows about to render.
+    /// update_filter no longer computes indices for every match; this tops up
+    /// the visible window (a row keeps its indices until the query changes).
+    /// Grep mode is excluded: its indices are set when result batches arrive.
+    pub fn ensure_visible_match_indices(&mut self, visible_height: usize) {
+        if self.query.is_empty() || self.mode == FinderMode::Grep {
+            return;
+        }
+
+        let (start, end) = self.visible_range(visible_height);
+        let start = start.min(end);
+        let mode = self.mode;
+        let query = self.query.clone();
+
+        for filtered_idx in start..end {
+            let item_idx = self.filtered[filtered_idx];
+            let Some(item) = self.items.get_mut(item_idx) else {
+                continue;
+            };
+            if !item.match_indices.is_empty() {
+                continue;
+            }
+            let (match_start, match_text) = if mode == FinderMode::GitChanges {
+                git_changes_display_path(&item.display)
+            } else {
+                (0, item.display.as_str())
+            };
+            item.match_indices =
+                offset_match_indices(&mut self.matcher, &query, match_text, match_start);
+        }
     }
 
     /// Get display text for the current filter state
@@ -1419,6 +1448,7 @@ mod tests {
         for ch in "type".chars() {
             finder.insert_char(ch);
         }
+        finder.ensure_visible_match_indices(10);
 
         let item = finder.selected_item().expect("matching item");
         let highlighted: String = item
@@ -1715,6 +1745,82 @@ mod tests {
         );
     }
 
+    fn files_finder_with_items(count: usize) -> FuzzyFinder {
+        let mut finder = FuzzyFinder::new();
+        finder.mode = FinderMode::Files;
+        finder.items = (0..count)
+            .map(|i| {
+                FinderItem::new(
+                    format!("src/module_{i}/some_file_{i}.rs"),
+                    PathBuf::from(format!("src/module_{i}/some_file_{i}.rs")),
+                )
+            })
+            .collect();
+        finder.filtered = (0..count).collect();
+        finder.populated = true;
+        finder
+    }
+
+    #[test]
+    fn match_indices_computed_only_for_visible_rows() {
+        let mut finder = files_finder_with_items(100);
+        for ch in "file".chars() {
+            finder.insert_char(ch);
+        }
+        assert!(finder.filtered.len() > 10, "query should match many items");
+
+        // Filtering alone computes no indices.
+        assert!(
+            finder
+                .filtered
+                .iter()
+                .all(|&idx| finder.items[idx].match_indices.is_empty())
+        );
+
+        finder.ensure_visible_match_indices(5);
+
+        let (start, end) = finder.visible_range(5);
+        for filtered_idx in start..end {
+            let item = &finder.items[finder.filtered[filtered_idx]];
+            assert!(
+                !item.match_indices.is_empty(),
+                "visible row must be highlighted: {}",
+                item.display
+            );
+        }
+        for filtered_idx in end..finder.filtered.len() {
+            let item = &finder.items[finder.filtered[filtered_idx]];
+            assert!(
+                item.match_indices.is_empty(),
+                "off-screen row must stay lazy: {}",
+                item.display
+            );
+        }
+    }
+
+    #[test]
+    fn scrolling_tops_up_match_indices_for_new_rows() {
+        let mut finder = files_finder_with_items(100);
+        for ch in "file".chars() {
+            finder.insert_char(ch);
+        }
+        finder.ensure_visible_match_indices(5);
+
+        // Move selection past the visible window and re-ensure, like the key
+        // handler does after navigation.
+        for _ in 0..7 {
+            finder.select_next();
+        }
+        finder.adjust_scroll(5);
+        finder.ensure_visible_match_indices(5);
+
+        let item = &finder.items[finder.filtered[finder.selected]];
+        assert!(
+            !item.match_indices.is_empty(),
+            "row scrolled into view must be highlighted"
+        );
+    }
+
     #[test]
     fn grep_result_highlight_falls_back_when_lowercase_expands() {
         // 'İ' lowercases to two chars, breaking 1:1 alignment; the fallback
@@ -1817,6 +1923,54 @@ mod tests {
         assert!(
             p95 <= budget,
             "grep batch apply p95 exceeded budget: p95={p95:?} budget={budget:?}"
+        );
+    }
+
+    #[test]
+    fn query_change_invalidates_stale_match_indices() {
+        let mut finder = files_finder_with_items(20);
+        for ch in "file".chars() {
+            finder.insert_char(ch);
+        }
+        finder.ensure_visible_match_indices(10);
+        let before = finder.items[finder.filtered[0]].match_indices.clone();
+        assert!(!before.is_empty());
+
+        finder.insert_char('_');
+        // Filtering cleared everything; ensure recomputes for the new query.
+        finder.ensure_visible_match_indices(10);
+        let item = &finder.items[finder.filtered[0]];
+        assert!(!item.match_indices.is_empty());
+        assert_ne!(item.match_indices, before, "indices must track the query");
+    }
+
+    #[test]
+    #[ignore = "perf budget guard; run explicitly with cargo test finder_filter_budget -- --ignored --nocapture"]
+    fn finder_filter_budget_keystroke_stays_bounded() {
+        use std::time::{Duration, Instant};
+
+        // 10k items is the file picker cap. Each keystroke re-filters all of
+        // them; the visible-row ensure afterwards mirrors the key handler.
+        let mut finder = files_finder_with_items(10_000);
+        let mut keystroke_times = Vec::new();
+
+        for ch in "somefil".chars() {
+            let started = Instant::now();
+            finder.insert_char(ch);
+            finder.ensure_visible_match_indices(40);
+            keystroke_times.push(started.elapsed());
+        }
+
+        keystroke_times.sort_unstable();
+        let p95 = keystroke_times[(keystroke_times.len() * 95).div_ceil(100) - 1];
+        let budget = Duration::from_millis(10);
+        println!(
+            "finder filter keystroke: p95={p95:?} max={:?} budget={budget:?}",
+            keystroke_times.last().unwrap()
+        );
+        assert!(
+            p95 <= budget,
+            "finder filter keystroke p95 exceeded budget: p95={p95:?} budget={budget:?}"
         );
     }
 }
