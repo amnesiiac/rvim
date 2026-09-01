@@ -2173,6 +2173,12 @@ fn main() -> anyhow::Result<()> {
             );
         }
 
+        // Apply a finished background git status scan (explorer markers).
+        // The scan no longer blocks startup, saves, or opening the explorer.
+        if editor.poll_git_state() {
+            needs_redraw = true;
+        }
+
         // Check for pending finder preview updates (debounced)
         // This avoids the 10-40ms tree-sitter parsing on every keystroke
         if editor.finder.preview_update_pending {

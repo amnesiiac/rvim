@@ -9,6 +9,7 @@
 - Document changes go to the LSP once per input batch instead of once per keystroke, with the serialized text shared with Copilot, so fast input bursts cost one document pass instead of one per key. (#303)
 - The file picker no longer blocks the editor while scanning the project. The walk runs on parallel background workers and streams results in as they are found, so the picker opens instantly with a scanning counter, and the walk itself is about 5x faster. (#305)
 - Live grep walks and searches files with parallel workers instead of one file at a time. Results are unchanged; only the order files appear in can differ between runs. (#306)
+- The full repo git status scan runs in the background instead of blocking startup, saving, focus changes, and opening the explorer. Explorer markers apply when the scan finishes, a frame or two later. Opening a 15k file repo went from about 130ms to about 30ms. (#308)
 
 ### Vim Compatibility
 

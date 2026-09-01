@@ -970,6 +970,13 @@ impl CompletionState {
 }
 
 /// Main editor state
+/// Result of a background full-repo git status scan.
+struct GitStatusScan {
+    generation: u64,
+    statuses: HashMap<std::path::PathBuf, crate::git::GitFileStatus>,
+    scan_duration: Duration,
+}
+
 pub struct Editor {
     /// All open buffers
     buffers: Vec<Buffer>,
@@ -1116,6 +1123,10 @@ pub struct Editor {
     pub markdown_preview: Option<crate::markdown_preview::MarkdownPreviewState>,
     /// Recent in-memory performance timing events.
     pub flight_recorder: crate::perf::FlightRecorder,
+    /// Receiver for the in-flight background git status scan
+    git_status_receiver: Option<std::sync::mpsc::Receiver<GitStatusScan>>,
+    /// Generation guard so stale background scans are discarded on arrival
+    git_status_generation: u64,
     /// Dirty regions recorded for future partial-rendering passes.
     pub render_damage: crate::render_damage::RenderDamage,
     /// Last project-wide replace preview, pending explicit apply.
@@ -1638,6 +1649,8 @@ impl Editor {
             theme_picker: None,
             markdown_preview: None,
             flight_recorder: crate::perf::FlightRecorder::default(),
+            git_status_receiver: None,
+            git_status_generation: 0,
             render_damage: crate::render_damage::RenderDamage::full(),
             project_replace_preview: None,
             labeled_jump: None,
@@ -3066,24 +3079,77 @@ impl Editor {
         self.refresh_explorer_git_statuses();
     }
 
-    /// Refresh git-backed explorer markers.
+    /// Refresh git-backed explorer markers. The full-repo status scan runs on
+    /// a background thread (54-141ms on large repos, and it used to block
+    /// startup, every save, and opening the explorer); poll_git_state applies
+    /// the result when it lands, so markers pop in a frame or two later.
     pub fn refresh_explorer_git_statuses(&mut self) {
-        if let Some(repo) = &self.git_repo {
+        if self.git_repo.is_none() {
+            self.explorer.clear_git_statuses();
+            return;
+        }
+        let Some(root) = self.project_root.clone() else {
+            self.explorer.clear_git_statuses();
+            return;
+        };
+
+        // Stale scans (older generation, or from a root we already left) are
+        // discarded on arrival. Rapid triggers just supersede each other.
+        self.git_status_generation = self.git_status_generation.wrapping_add(1);
+        let generation = self.git_status_generation;
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.git_status_receiver = Some(rx);
+
+        std::thread::spawn(move || {
+            // git2 repositories are not shared across threads; opening by
+            // path is cheap next to the scan itself.
+            let Some(repo) = crate::git::GitRepo::open(&root) else {
+                return;
+            };
             let started = Instant::now();
-            let mut statuses = repo.file_statuses();
-            self.flight_recorder
-                .record("git_file_statuses", started.elapsed());
-            for buffer in &self.buffers {
-                if buffer.dirty {
-                    if let Some(path) = &buffer.path {
-                        statuses.insert(path.clone(), crate::git::GitFileStatus::Modified);
-                    }
+            let statuses = repo.file_statuses();
+            let _ = tx.send(GitStatusScan {
+                generation,
+                statuses,
+                scan_duration: started.elapsed(),
+            });
+        });
+    }
+
+    /// Apply a finished background status scan, if one arrived. Returns true
+    /// when explorer markers changed and a redraw is needed.
+    pub fn poll_git_state(&mut self) -> bool {
+        let Some(rx) = self.git_status_receiver.as_ref() else {
+            return false;
+        };
+        let scan = match rx.try_recv() {
+            Ok(scan) => scan,
+            Err(std::sync::mpsc::TryRecvError::Empty) => return false,
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                self.git_status_receiver = None;
+                return false;
+            }
+        };
+        self.git_status_receiver = None;
+        if scan.generation != self.git_status_generation {
+            return false;
+        }
+
+        self.flight_recorder
+            .record("git_file_statuses", scan.scan_duration);
+
+        // The dirty-buffer overlay uses the buffers as they are NOW, not as
+        // they were when the scan started.
+        let mut statuses = scan.statuses;
+        for buffer in &self.buffers {
+            if buffer.dirty {
+                if let Some(path) = &buffer.path {
+                    statuses.insert(path.clone(), crate::git::GitFileStatus::Modified);
                 }
             }
-            self.explorer.rebuild_git_statuses_from(statuses);
-        } else {
-            self.explorer.clear_git_statuses();
         }
+        self.explorer.rebuild_git_statuses_from(statuses);
+        true
     }
 
     /// Get reference to the git repository (if available)
@@ -14182,6 +14248,17 @@ mod tests {
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
+    /// Poll until the background git status scan lands, like the main loop does.
+    fn wait_for_git_state(editor: &mut Editor) {
+        for _ in 0..200 {
+            if editor.poll_git_state() {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        panic!("background git status scan did not finish");
+    }
+
     #[test]
     fn perf_metrics_record_syntax_parse_and_git_file_statuses() {
         let tmp = unique_temp_dir("nevi_perf_metrics");
@@ -14196,16 +14273,74 @@ mod tests {
         editor.set_project_root(root.clone());
         editor.init_git();
         editor.open_file(path).expect("open file");
+        wait_for_git_state(&mut editor);
 
         let names: Vec<&str> = editor.flight_recorder.events().map(|e| e.name).collect();
         assert!(
             names.contains(&"git_file_statuses"),
-            "init_git must record the full-repo status scan: {names:?}"
+            "the status scan must record its metric when applied: {names:?}"
         );
         assert!(
             names.contains(&"syntax_parse"),
             "opening a .rs file must record the parse: {names:?}"
         );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn background_git_status_scan_populates_explorer_markers() {
+        let tmp = unique_temp_dir("nevi_async_git_status");
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let root = tmp.canonicalize().expect("canonical temp dir");
+        std::fs::write(root.join("tracked.rs"), "old\n").expect("write");
+        let repo = git2::Repository::init(&root).expect("init repo");
+        commit_file(&repo, Path::new("tracked.rs"), "initial");
+        std::fs::write(root.join("tracked.rs"), "new\n").expect("modify");
+        std::fs::write(root.join("untracked.rs"), "x\n").expect("untracked");
+
+        let mut editor = Editor::default();
+        editor.set_project_root(root.clone());
+        editor.init_git();
+
+        // init_git returns before the scan lands; markers arrive on poll.
+        wait_for_git_state(&mut editor);
+
+        assert_eq!(
+            editor
+                .explorer
+                .git_status_for_path(&root.join("tracked.rs")),
+            Some(crate::git::GitFileStatus::Modified)
+        );
+        assert_eq!(
+            editor
+                .explorer
+                .git_status_for_path(&root.join("untracked.rs")),
+            Some(crate::git::GitFileStatus::Untracked)
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn stale_git_status_scan_is_discarded() {
+        let tmp = unique_temp_dir("nevi_stale_git_status");
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let root = tmp.canonicalize().expect("canonical temp dir");
+        std::fs::write(root.join("a.rs"), "x\n").expect("write");
+        let repo = git2::Repository::init(&root).expect("init repo");
+        commit_file(&repo, Path::new("a.rs"), "initial");
+
+        let mut editor = Editor::default();
+        editor.set_project_root(root.clone());
+        editor.init_git();
+        // A second refresh supersedes the first; the first scan's result,
+        // whenever it lands, must not clobber the newer generation.
+        editor.refresh_explorer_git_statuses();
+        wait_for_git_state(&mut editor);
+
+        // Only the newest generation applies; polling again finds nothing.
+        assert!(!editor.poll_git_state());
 
         let _ = std::fs::remove_dir_all(&tmp);
     }
