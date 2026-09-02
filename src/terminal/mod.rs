@@ -7803,12 +7803,12 @@ fn handle_normal_mode(editor: &mut Editor, key: KeyEvent) {
             editor.enter_search_backward();
         }
 
-        KeyAction::SearchNext => {
-            editor.search_next();
+        KeyAction::SearchNext(count) => {
+            editor.search_next(count);
         }
 
-        KeyAction::SearchPrev => {
-            editor.search_prev();
+        KeyAction::SearchPrev(count) => {
+            editor.search_prev(count);
         }
 
         KeyAction::SearchWordForward => {

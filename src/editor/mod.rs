@@ -353,6 +353,20 @@ pub struct SearchState {
     /// `[current/total]` counter for the statusline, recomputed on search
     /// jumps (/, ?, n, N, *, #) — never counted during render.
     pub match_stats: Option<(usize, usize)>,
+    /// Cursor and view when the search prompt opened. Vim's incsearch model:
+    /// every keystroke evaluates the whole pattern from here (not from
+    /// wherever the previous keystroke moved the cursor), and cancelling or
+    /// failing the search restores this position.
+    pub origin: Option<SearchOrigin>,
+}
+
+/// Position saved when a `/` or `?` prompt opens, restored on cancel/failure.
+#[derive(Debug, Clone, Copy)]
+pub struct SearchOrigin {
+    pub line: usize,
+    pub col: usize,
+    pub viewport_offset: usize,
+    pub h_offset: usize,
 }
 
 impl SearchState {
@@ -364,6 +378,7 @@ impl SearchState {
         self.saved_input = None;
         self.pending_register = false;
         self.match_stats = None;
+        self.origin = None;
     }
 
     /// Start a new search
@@ -375,6 +390,7 @@ impl SearchState {
         self.saved_input = None;
         self.pending_register = false;
         self.match_stats = None;
+        self.origin = None;
     }
 
     /// Insert a character at cursor (cursor is character index, not byte index)
@@ -537,6 +553,9 @@ impl SearchState {
 
     /// Execute search and save pattern
     pub fn execute(&mut self) -> Option<String> {
+        // n/N follow the direction of the latest `/` or `?`, even when it
+        // repeated the previous pattern with an empty input (Vim behavior).
+        self.last_direction = self.direction;
         if self.input.is_empty() {
             // Use last pattern if input is empty
             self.last_pattern.clone()
@@ -544,7 +563,6 @@ impl SearchState {
             let pattern = self.input.clone();
             self.record_history(pattern.clone());
             self.last_pattern = Some(pattern.clone());
-            self.last_direction = self.direction;
             Some(pattern)
         }
     }
@@ -6908,6 +6926,7 @@ impl Editor {
     pub fn enter_search_forward(&mut self) {
         self.mode = Mode::Search;
         self.search.start(SearchDirection::Forward);
+        self.record_search_origin();
         self.render_damage.mark_full();
     }
 
@@ -6915,12 +6934,34 @@ impl Editor {
     pub fn enter_search_backward(&mut self) {
         self.mode = Mode::Search;
         self.search.start(SearchDirection::Backward);
+        self.record_search_origin();
         self.render_damage.mark_full();
     }
 
-    /// Exit search mode
+    fn record_search_origin(&mut self) {
+        self.search.origin = Some(SearchOrigin {
+            line: self.cursor.line,
+            col: self.cursor.col,
+            viewport_offset: self.viewport_offset,
+            h_offset: self.h_offset,
+        });
+    }
+
+    /// Put the cursor and view back where the search prompt opened.
+    fn restore_search_origin(&mut self) {
+        if let Some(origin) = self.search.origin {
+            self.cursor.line = origin.line;
+            self.cursor.col = origin.col;
+            self.viewport_offset = origin.viewport_offset;
+            self.h_offset = origin.h_offset;
+        }
+    }
+
+    /// Exit search mode without executing (Esc / Ctrl+c), restoring the
+    /// position the prompt opened from like Vim's incsearch cancel.
     pub fn exit_search_mode(&mut self) {
         self.mode = Mode::Normal;
+        self.restore_search_origin();
         self.search.clear();
         self.search_matches.clear();
         self.render_damage.mark_full();
@@ -6942,6 +6983,9 @@ impl Editor {
     /// is limited to visible rows so rendering stays bounded.
     pub fn update_incremental_search(&mut self) {
         let pattern = self.search.input.clone();
+        // Evaluate the whole pattern from the origin every keystroke; when
+        // it stops matching (or is emptied), the view snaps back there.
+        self.restore_search_origin();
         if pattern.is_empty() {
             self.search_matches.clear();
             self.render_damage.mark_full();
@@ -6965,9 +7009,11 @@ impl Editor {
         let direction = self.search.direction;
         if let Some(pattern) = self.search.execute() {
             self.mode = Mode::Normal;
-            if self.cursor_starts_search_match(&pattern)
-                || self.do_search(&pattern, direction, true)
-            {
+            // The final search runs from the origin, like the incremental
+            // preview: the match the user saw is the match they get, and a
+            // failed pattern leaves the cursor where the prompt opened.
+            self.restore_search_origin();
+            if self.do_search(&pattern, direction, true) {
                 self.refresh_visible_search_matches(&pattern);
                 self.update_search_match_stats(&pattern);
             } else {
@@ -6979,40 +7025,38 @@ impl Editor {
             self.mode = Mode::Normal;
             self.set_status("No previous search pattern");
         }
+        self.search.origin = None;
     }
 
     /// Search for next occurrence (n)
-    pub fn search_next(&mut self) {
-        self.render_damage.mark_full();
-        if let Some(pattern) = self.search.last_pattern.clone() {
-            // Record jump before searching (search is a jump motion)
-            self.record_jump();
-            let direction = self.search.last_direction;
-            if self.do_search(&pattern, direction, true) {
-                self.refresh_visible_search_matches(&pattern);
-                self.update_search_match_stats(&pattern);
-            } else {
-                self.search_matches.clear();
-                self.search.match_stats = None;
-                self.set_status(format!("Pattern not found: {}", pattern));
-            }
-        } else {
-            self.set_status("No previous search pattern");
-        }
+    pub fn search_next(&mut self, count: usize) {
+        let direction = self.search.last_direction;
+        self.repeat_search(direction, count);
     }
 
     /// Search for previous occurrence (N)
-    pub fn search_prev(&mut self) {
+    pub fn search_prev(&mut self, count: usize) {
+        let direction = match self.search.last_direction {
+            SearchDirection::Forward => SearchDirection::Backward,
+            SearchDirection::Backward => SearchDirection::Forward,
+        };
+        self.repeat_search(direction, count);
+    }
+
+    /// Shared n/N body: one recorded jump, then `count` search hops.
+    fn repeat_search(&mut self, direction: SearchDirection, count: usize) {
         self.render_damage.mark_full();
         if let Some(pattern) = self.search.last_pattern.clone() {
             // Record jump before searching (search is a jump motion)
             self.record_jump();
-            // Reverse the direction
-            let direction = match self.search.last_direction {
-                SearchDirection::Forward => SearchDirection::Backward,
-                SearchDirection::Backward => SearchDirection::Forward,
-            };
-            if self.do_search(&pattern, direction, true) {
+            let mut found = true;
+            for _ in 0..count.max(1) {
+                if !self.do_search(&pattern, direction, true) {
+                    found = false;
+                    break;
+                }
+            }
+            if found {
                 self.refresh_visible_search_matches(&pattern);
                 self.update_search_match_stats(&pattern);
             } else {
@@ -7162,31 +7206,6 @@ impl Editor {
         }
     }
 
-    fn cursor_starts_search_match(&self, pattern: &str) -> bool {
-        if pattern.is_empty() {
-            return false;
-        }
-
-        let Some(line) = self.buffers[self.current_buffer_idx].line(self.cursor.line) else {
-            return false;
-        };
-
-        let pattern_len = pattern.chars().count();
-        let line_len = line.len_chars();
-        if self.cursor.col.saturating_add(pattern_len) > line_len {
-            return false;
-        }
-
-        let mut line_chars = line.slice(self.cursor.col..line_len).chars();
-        for expected in pattern.chars() {
-            if line_chars.next() != Some(expected) {
-                return false;
-            }
-        }
-
-        true
-    }
-
     /// Search for word under cursor forward (*)
     pub fn search_word_forward(&mut self) {
         self.render_damage.mark_full();
@@ -7254,9 +7273,20 @@ impl Editor {
 
         self.record_jump();
         self.mode = Mode::Visual;
-        self.visual = VisualSelection::new(line, start_col);
+        let last_col = end_col.saturating_sub(1).max(start_col);
+        match direction {
+            // gn anchors at the match start and puts the cursor on its end;
+            // gN mirrors that (cursor on the start, anchored at the end).
+            SearchDirection::Forward => {
+                self.visual = VisualSelection::new(line, start_col);
+                self.cursor.col = last_col;
+            }
+            SearchDirection::Backward => {
+                self.visual = VisualSelection::new(line, last_col);
+                self.cursor.col = start_col;
+            }
+        }
         self.cursor.line = line;
-        self.cursor.col = end_col.saturating_sub(1).max(start_col);
         self.scroll_to_cursor();
     }
 
@@ -12228,15 +12258,63 @@ mod tests {
         editor.execute_search();
         assert_eq!(editor.search.match_stats, Some((1, 4)));
 
-        editor.search_next();
+        editor.search_next(1);
         assert_eq!(editor.search.match_stats, Some((2, 4)));
 
-        editor.search_prev();
+        editor.search_prev(1);
         assert_eq!(editor.search.match_stats, Some((1, 4)));
 
         // Counter shares the highlight lifecycle: any non-search movement clears it.
         editor.clear_search_highlights();
         assert_eq!(editor.search.match_stats, None);
+    }
+
+    // The oracle can't see h_offset (its lines never scroll horizontally), so
+    // the horizontal half of the origin restore needs a native regression.
+    #[test]
+    fn cancelled_search_restores_cursor_viewport_and_h_offset() {
+        let mut editor = Editor::default();
+        editor.set_size(40, 10);
+        editor.settings.editor.wrap = false;
+        let mut content = format!("{}tail\n", "x".repeat(120));
+        for _ in 0..20 {
+            content.push_str("filler\n");
+        }
+        content.push_str("beta\n");
+        editor.replace_buffer_content(&content);
+        editor.cursor.col = 120;
+        editor.scroll_to_cursor();
+        assert!(
+            editor.h_offset > 0,
+            "setup needs a horizontally scrolled view"
+        );
+        let origin = (
+            editor.cursor.line,
+            editor.cursor.col,
+            editor.viewport_offset,
+            editor.h_offset,
+        );
+
+        editor.enter_search_forward();
+        for ch in "beta".chars() {
+            editor.search.insert_char(ch);
+            editor.update_incremental_search();
+        }
+        // The preview scrolled to the match near the bottom of the file.
+        assert_ne!(editor.cursor.line, origin.0);
+        assert_eq!(editor.h_offset, 0);
+
+        editor.exit_search_mode();
+
+        assert_eq!(
+            (
+                editor.cursor.line,
+                editor.cursor.col,
+                editor.viewport_offset,
+                editor.h_offset,
+            ),
+            origin
+        );
     }
 
     #[test]
@@ -12254,7 +12332,7 @@ mod tests {
         editor.cursor.line = 0;
         editor.cursor.col = 0;
 
-        editor.search_next();
+        editor.search_next(1);
 
         assert_eq!(editor.cursor.line, 1);
         let visible_rows = editor.text_rows();
@@ -12336,7 +12414,7 @@ mod tests {
         editor.execute_search();
 
         let first_match = (editor.cursor.line, editor.cursor.col);
-        editor.search_next();
+        editor.search_next(1);
 
         assert_eq!((editor.cursor.line, editor.cursor.col), first_match);
         assert_ne!(
@@ -12357,7 +12435,7 @@ mod tests {
         editor.execute_search();
 
         let first_match = (editor.cursor.line, editor.cursor.col);
-        editor.search_prev();
+        editor.search_prev(1);
 
         assert_eq!((editor.cursor.line, editor.cursor.col), first_match);
         assert_ne!(

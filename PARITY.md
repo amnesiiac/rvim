@@ -10,13 +10,13 @@ the test suite enforces, so it cannot drift from what is actually verified.
 ## Summary
 
 - **339 keybinds implemented** ([KEYBINDINGS.md](KEYBINDINGS.md)), **88 planned** ([KEYBINDS_ROADMAP.md](KEYBINDS_ROADMAP.md))
-- **159 keybinds in the coverage inventory**, each mapped to the automated test that protects it:
-  - 151 verified against real Neovim (v0.11.3) by the Vim oracle
+- **167 keybinds in the coverage inventory**, each mapped to the automated test that protects it:
+  - 159 verified against real Neovim (v0.11.3) by the Vim oracle
   - 7 protected by focused Nevi regression tests
   - 1 covered as default-keymap plumbing with dedicated tests
-- **366 oracle cases**: motions (144), editing (132), insert-entry (11), open-line (20), replace (27), text-objects (30), undo-redo (2)
+- **402 oracle cases**: motions (144), editing (132), insert-entry (11), open-line (20), replace (27), search (36), text-objects (30), undo-redo (2)
 - **0 tracked coverage gaps**
-- **213 of 438 documented keybind rows map to an inventoried keybind**; the rest work today but are not yet individually tracked ([full list below](#documented-but-not-yet-inventoried))
+- **224 of 438 documented keybind rows map to an inventoried keybind**; the rest work today but are not yet individually tracked ([full list below](#documented-but-not-yet-inventoried))
 
 ## How the Vim oracle works
 
@@ -187,6 +187,14 @@ claim protection.
 | `zz` | Center cursor line | `center cursor line` |
 | `zt` | Move cursor line to top | `cursor line to top` |
 | `zb` | Move cursor line to bottom | `cursor line to bottom` |
+| `/` | Search forward | `search forward lands on match start` |
+| `?` | Search backward | `search backward lands on previous match` |
+| `n` | Go to next match | `next match` |
+| `N` | Go to previous match | `previous match reverses direction` |
+| `*` | Search word under cursor forward | `star searches word forward` |
+| `#` | Search word under cursor backward | `hash searches word backward` |
+| `gn` | Search forward and select match | `gn selects next match from outside` |
+| `gN` | Search backward and select match | `gN selects match backward` |
 
 ## Protected by Nevi regression tests
 
@@ -222,7 +230,7 @@ like `dw` are tracked as single inventory entries, so their building-block
 rows may already be covered compositionally.)
 
 <details>
-<summary>225 untracked rows</summary>
+<summary>214 untracked rows</summary>
 
 | Keybind | Behavior |
 |---------|----------|
@@ -239,14 +247,6 @@ rows may already be covered compositionally.)
 | `<{motion}` | Dedent with motion |
 | `==` | Auto-indent current line |
 | `={motion}` | Auto-indent with motion |
-| `/` | Search forward |
-| `?` | Search backward |
-| `n` | Go to next match |
-| `N` | Go to previous match |
-| `*` | Search word under cursor forward |
-| `#` | Search word under cursor backward |
-| `gn` | Search forward and select match |
-| `gN` | Search backward and select match |
 | `Up` | Navigate to previous search history entry |
 | `Down` | Navigate to next search history entry |
 | `m{A-Z}` | Set global mark (works across files) |
@@ -360,14 +360,11 @@ rows may already be covered compositionally.)
 | `g` | Go to first result |
 | `K` | Move selected Harpoon item up |
 | `Tab` | Toggle expand/collapse |
-| `?` | Show explorer keymaps |
 | `Ctrl+l` | Focus editor and keep explorer open |
 | `>` | Widen explorer sidebar |
 | `<` | Narrow explorer sidebar |
 | `=` | Reset explorer sidebar width |
 | `r` | Rename selected item |
-| `/` | Search explorer |
-| `n` / `N` | Next/previous search match |
 | `]h` | Go to next harpoon file |
 | `[h` | Go to previous harpoon file |
 | `1` - `9` | Open the numbered recent file |

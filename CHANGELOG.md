@@ -13,6 +13,11 @@
 
 ### Vim Compatibility
 
+- Search now anchors at the position where `/` or `?` was pressed, like Vim. Every keystroke evaluates the whole pattern from that origin instead of chasing the cursor around, so editing the pattern with backspace cannot land on an earlier match than Vim would. Escape cancels back to the original cursor and view, and a pattern with no match leaves the cursor where the search started.
+- Repeating a search with an empty prompt (`/` or `?` then Enter) now moves off a match under the cursor instead of standing still, and it updates the direction that `n` and `N` follow, so `n` after `?` and Enter keeps searching backward.
+- `n` and `N` now take a count, so `3n` jumps three matches ahead.
+- `gN` now leaves the cursor on the start of the selected match like Vim. It used to sit on the end, same as `gn`.
+- Extended Vim oracle coverage to the search family: `/`, `?`, `n`, `N`, `*`, `#`, `gn`, `gN`, and the search prompt editing keys (`Backspace`, `Ctrl+w`, `Ctrl+u`, `Ctrl+b`, `Ctrl+e`, `Ctrl+r`, history recall with `Up`), all verified against real Neovim and tracked in `PARITY.md`.
 - Fixed the quote text objects (`i"`, `a"`, `i'`, `a'`, `` i` ``, `` a` ``) doing nothing when the cursor sits before the first quote. They now seek forward on the line, as in Vim, so `ci"` works from the start of the line.
 - Fixed `a"` and friends not spanning surrounding whitespace. They now take the trailing whitespace after the closing quote, or the leading whitespace when there is none trailing.
 - Fixed `ip` and `ap` on a blank line operating on the next paragraph instead of the blank lines themselves, and `ap` after a paragraph now takes all trailing blank lines instead of just one.

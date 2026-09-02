@@ -435,7 +435,7 @@ Operators are commands that wait for a motion. For example, `d` (delete) + `w` (
 | `gn` | Search forward and select match |
 | `gN` | Search backward and select match |
 
-> **Tip:** Search supports regex. Use `\c` at the start for case-insensitive search (e.g., `/\cfoo`).
+> **Note:** Search matches literal text and is case sensitive, like Vim with default settings. Regex patterns are not supported yet.
 
 ### Search Prompt Editing
 
