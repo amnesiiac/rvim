@@ -186,10 +186,10 @@ pub enum KeyAction {
     EnterSearchForward,
     /// Enter search mode (backward)
     EnterSearchBackward,
-    /// Search next (n)
-    SearchNext,
-    /// Search previous (N)
-    SearchPrev,
+    /// Search next (n), repeated count times
+    SearchNext(usize),
+    /// Search previous (N), repeated count times
+    SearchPrev(usize),
     /// Search word under cursor forward (*)
     SearchWordForward,
     /// Search word under cursor backward (#)
@@ -1211,12 +1211,14 @@ impl InputState {
                 KeyAction::EnterSearchBackward
             }
             (KeyModifiers::NONE, KeyCode::Char('n')) => {
+                let count = self.effective_count();
                 self.reset();
-                KeyAction::SearchNext
+                KeyAction::SearchNext(count)
             }
             (KeyModifiers::SHIFT, KeyCode::Char('N')) => {
+                let count = self.effective_count();
                 self.reset();
-                KeyAction::SearchPrev
+                KeyAction::SearchPrev(count)
             }
             // Star search (* and #)
             (_, KeyCode::Char('*')) => {
@@ -2643,12 +2645,20 @@ mod tests {
             other => panic!("expected EnterSearchBackward, got {:?}", other),
         }
         match run(&[key('n')]) {
-            KeyAction::SearchNext => {}
-            other => panic!("expected SearchNext, got {:?}", other),
+            KeyAction::SearchNext(1) => {}
+            other => panic!("expected SearchNext(1), got {:?}", other),
+        }
+        match run(&[key('3'), key('n')]) {
+            KeyAction::SearchNext(3) => {}
+            other => panic!("expected SearchNext(3), got {:?}", other),
         }
         match run(&[shift('N')]) {
-            KeyAction::SearchPrev => {}
-            other => panic!("expected SearchPrev, got {:?}", other),
+            KeyAction::SearchPrev(1) => {}
+            other => panic!("expected SearchPrev(1), got {:?}", other),
+        }
+        match run(&[key('2'), shift('N')]) {
+            KeyAction::SearchPrev(2) => {}
+            other => panic!("expected SearchPrev(2), got {:?}", other),
         }
         match run(&[key('*')]) {
             KeyAction::SearchWordForward => {}

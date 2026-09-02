@@ -9,12 +9,14 @@ mod editing_cases;
 mod insert_entry_cases;
 mod open_line_cases;
 mod replace_cases;
+mod search_cases;
 mod text_object_cases;
 
 use editing_cases::EDITING_CASES;
 use insert_entry_cases::INSERT_ENTRY_CASES;
 use open_line_cases::OPEN_LINE_CASES;
 use replace_cases::REPLACE_CASES;
+use search_cases::SEARCH_CASES;
 use text_object_cases::TEXT_OBJECT_CASES;
 
 #[derive(Debug, Clone, Copy)]
@@ -1008,6 +1010,10 @@ const ORACLE_CATEGORIES: &[OracleCategory] = &[
     OracleCategory {
         name: "replace",
         cases: REPLACE_CASES,
+    },
+    OracleCategory {
+        name: "search",
+        cases: SEARCH_CASES,
     },
     OracleCategory {
         name: "text-objects",

@@ -490,6 +490,41 @@ const KEYBIND_COVERAGE: &[KeybindCoverage] = &[
     vim_oracle("zz", "Center cursor line", "center cursor line"),
     vim_oracle("zt", "Move cursor line to top", "cursor line to top"),
     vim_oracle("zb", "Move cursor line to bottom", "cursor line to bottom"),
+    // Search-family batch. The prompt-editing keys (Ctrl+b/e/w/u, Ctrl+r,
+    // Up/Down) share key spellings with insert/scroll entries above, so they
+    // stay pinned by oracle cases without their own inventory rows.
+    vim_oracle("/", "Search forward", "search forward lands on match start"),
+    vim_oracle(
+        "?",
+        "Search backward",
+        "search backward lands on previous match",
+    ),
+    vim_oracle("n", "Go to next match", "next match"),
+    vim_oracle(
+        "N",
+        "Go to previous match",
+        "previous match reverses direction",
+    ),
+    vim_oracle(
+        "*",
+        "Search word under cursor forward",
+        "star searches word forward",
+    ),
+    vim_oracle(
+        "#",
+        "Search word under cursor backward",
+        "hash searches word backward",
+    ),
+    vim_oracle(
+        "gn",
+        "Search forward and select match",
+        "gn selects next match from outside",
+    ),
+    vim_oracle(
+        "gN",
+        "Search backward and select match",
+        "gN selects match backward",
+    ),
     KeybindCoverage {
         mode: KeybindMode::Normal,
         key: "1-9 (start screen)",
