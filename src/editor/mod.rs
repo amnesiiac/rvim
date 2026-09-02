@@ -7556,6 +7556,9 @@ impl Editor {
         self.buffers[self.current_buffer_idx].replace_line(self.cursor.line, &new_line);
         self.buffers[self.current_buffer_idx].mark_modified();
         self.cursor.col = change.cursor_col();
+        // A number can grow by many chars (0x0 minus one is 18 wide), so
+        // with wrap off the view has to follow the cursor like any motion.
+        self.scroll_to_cursor();
         self.undo_stack
             .end_undo_group(self.cursor.line, self.cursor.col);
     }
@@ -12283,6 +12286,29 @@ mod tests {
 
     // The oracle can't see h_offset (its lines never scroll horizontally), so
     // the horizontal half of the origin restore needs a native regression.
+    #[test]
+    fn increment_keeps_grown_number_cursor_on_screen() {
+        let mut editor = Editor::default();
+        editor.set_size(40, 10);
+        editor.settings.editor.wrap = false;
+        editor.replace_buffer_content(&format!("{}0x0\n", "x".repeat(30)));
+        editor.cursor.col = 30;
+        editor.scroll_to_cursor();
+        assert_eq!(editor.h_offset, 0, "setup starts unscrolled");
+
+        // 0x0 minus one is 18 chars wide, pushing the cursor past the edge.
+        editor.add_to_number_at_cursor(-1);
+
+        assert_eq!(editor.cursor.col, 47);
+        assert!(
+            editor.cursor.col < editor.h_offset + editor.text_area_width(),
+            "cursor col {} not visible with h_offset {} and width {}",
+            editor.cursor.col,
+            editor.h_offset,
+            editor.text_area_width()
+        );
+    }
+
     #[test]
     fn cancelled_search_restores_cursor_viewport_and_h_offset() {
         let mut editor = Editor::default();
