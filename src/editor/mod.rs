@@ -3366,6 +3366,31 @@ impl Editor {
         self.alternate_file_path = self.buffers[self.current_buffer_idx].path.clone();
     }
 
+    /// `Ctrl-^`: edit the alternate file, the one this window showed before
+    /// the current buffer (`:e #`). A closed alternate is read back from
+    /// disk, as Vim re-edits an unlisted buffer.
+    pub fn switch_to_alternate_buffer(&mut self) {
+        let Some(path) = self.alternate_file_path.clone() else {
+            self.set_status("No alternate file");
+            return;
+        };
+        let open_idx = self
+            .buffers
+            .iter()
+            .position(|buffer| buffer.path.as_ref() == Some(&path));
+        match open_idx {
+            Some(idx) if idx != self.current_buffer_idx => {
+                self.switch_to_buffer(idx);
+            }
+            Some(_) => self.set_status("No alternate file"),
+            None => {
+                if let Err(err) = self.open_file(path) {
+                    self.set_status(format!("Error: {}", err));
+                }
+            }
+        }
+    }
+
     // ============================================
     // Pane Management
     // ============================================
@@ -4077,6 +4102,9 @@ impl Editor {
                 pane.h_offset = 0;
             }
         } else {
+            // The closed file becomes the alternate, as in Vim, so Ctrl-^
+            // can bring it straight back.
+            self.remember_current_file_as_alternate();
             // Remove the current buffer
             self.buffers.remove(removed_idx);
             self.undo_stacks.remove(removed_idx);

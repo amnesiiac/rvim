@@ -4,7 +4,7 @@ Nevi aims for full vim/neovim keybind compatibility. Defaults follow Neovim, and
 keybinds are configurable — sensible defaults out of the box, overridable to your
 own taste.
 
-**Status: 341 keybinds implemented, 86 planned Vim/Neovim parity defaults.**
+**Status: 343 keybinds implemented, 84 planned Vim/Neovim parity defaults.**
 
 This file tracks what's **planned** (not yet implemented). For the full list of
 keybinds that already work, see [KEYBINDINGS.md](KEYBINDINGS.md). This list comes
@@ -29,7 +29,7 @@ remain Vim-compatible unless Nevi intentionally documents a difference.
 ordering leans on the common proxies (vimtutor and cheat-sheet staples, what
 Neovim itself promotes to a default, plugin popularity like vim-unimpaired) and
 on what Nevi users actually ask for in issues — user reports move a key up
-immediately. The keys most hands reach for first: `Ctrl+^`, `ZQ`, the
+immediately. The keys most hands reach for first: the
 visual-mode operators (`gu` / `gU` /
 `g~`, `r`, `J`, `=`), `gq` / `gw`, and among the larger areas, folds and
 quickfix before tabs and tags.
@@ -81,8 +81,6 @@ quickfix before tabs and tags.
 
 | Keybind | Planned behavior |
 |---------|------------------|
-| `Ctrl+^` | Edit the alternate (previously edited) buffer |
-| `ZQ` | Quit without saving (like `:q!`) |
 | `[b` / `]b` | Go to the previous / next buffer (Neovim default) |
 | `[<Space>` / `]<Space>` | Add an empty line above / below the cursor (Neovim default) |
 

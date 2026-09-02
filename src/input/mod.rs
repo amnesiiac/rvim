@@ -168,6 +168,10 @@ pub enum KeyAction {
     /// Add the signed amount to the number at or after the cursor
     /// (<C-a> is +count, <C-x> is -count)
     AddToNumber(i64),
+    /// Quit without saving, like `:q!` (ZQ)
+    ForceQuit,
+    /// Edit the alternate buffer, like `:e #` (<C-^>)
+    AlternateBuffer,
     /// Repeat last change (.). Carries the typed count, if any: Vim treats
     /// an explicit count (even `1.`) as replacing the change's own count.
     RepeatLastChange(Option<usize>),
@@ -939,6 +943,15 @@ impl InputState {
                 self.motion_or_operator(Motion::BigWordEnd, count)
             }
 
+            // <C-^> - alternate buffer. Legacy terminals send byte 0x1e, which
+            // crossterm reports as Ctrl+6; the kitty protocol reports Ctrl+^
+            // with Shift also held. Must sit before the `^` motion arm below,
+            // which accepts any modifier.
+            (modifiers, KeyCode::Char('^' | '6')) if modifiers.contains(KeyModifiers::CONTROL) => {
+                self.reset();
+                KeyAction::AlternateBuffer
+            }
+
             // Line motions
             (KeyModifiers::NONE, KeyCode::Char('0')) => {
                 self.motion_or_operator(Motion::LineStart, count)
@@ -1518,6 +1531,11 @@ impl InputState {
             ('Z', KeyModifiers::SHIFT, KeyCode::Char('Z')) => {
                 self.reset();
                 KeyAction::WriteQuitIfModified
+            }
+            // ZQ - quit without saving
+            ('Z', KeyModifiers::SHIFT, KeyCode::Char('Q')) => {
+                self.reset();
+                KeyAction::ForceQuit
             }
             // ]d - go to next diagnostic
             (']', KeyModifiers::NONE, KeyCode::Char('d')) => {
@@ -2380,6 +2398,33 @@ mod tests {
     #[test]
     fn normal_zz_maps_to_write_quit_if_modified() {
         assert_write_quit_if_modified(&[shift('Z'), shift('Z')]);
+    }
+
+    #[test]
+    fn normal_zq_maps_to_force_quit() {
+        match run(&[shift('Z'), shift('Q')]) {
+            KeyAction::ForceQuit => {}
+            other => panic!("expected ForceQuit, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn ctrl_caret_maps_to_alternate_buffer_in_every_spelling() {
+        // Legacy terminals send byte 0x1e, which crossterm reports as Ctrl+6;
+        // the kitty protocol reports the shifted key with Ctrl and Shift held.
+        for key in [
+            ctrl('^'),
+            ctrl('6'),
+            KeyEvent::new(
+                KeyCode::Char('^'),
+                KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+            ),
+        ] {
+            match run(&[key]) {
+                KeyAction::AlternateBuffer => {}
+                other => panic!("expected AlternateBuffer for {key:?}, got {other:?}"),
+            }
+        }
     }
 
     #[test]

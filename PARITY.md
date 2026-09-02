@@ -9,14 +9,14 @@ the test suite enforces, so it cannot drift from what is actually verified.
 
 ## Summary
 
-- **341 keybinds implemented** ([KEYBINDINGS.md](KEYBINDINGS.md)), **86 planned** ([KEYBINDS_ROADMAP.md](KEYBINDS_ROADMAP.md))
-- **169 keybinds in the coverage inventory**, each mapped to the automated test that protects it:
+- **343 keybinds implemented** ([KEYBINDINGS.md](KEYBINDINGS.md)), **84 planned** ([KEYBINDS_ROADMAP.md](KEYBINDS_ROADMAP.md))
+- **172 keybinds in the coverage inventory**, each mapped to the automated test that protects it:
   - 161 verified against real Neovim (v0.11.3) by the Vim oracle
-  - 7 protected by focused Nevi regression tests
+  - 10 protected by focused Nevi regression tests
   - 1 covered as default-keymap plumbing with dedicated tests
 - **448 oracle cases**: motions (144), editing (133), increment (31), insert-entry (17), open-line (20), replace (27), search (44), text-objects (30), undo-redo (2)
 - **0 tracked coverage gaps**
-- **226 of 440 documented keybind rows map to an inventoried keybind**; the rest work today but are not yet individually tracked ([full list below](#documented-but-not-yet-inventoried))
+- **229 of 441 documented keybind rows map to an inventoried keybind**; the rest work today but are not yet individually tracked ([full list below](#documented-but-not-yet-inventoried))
 
 ## How the Vim oracle works
 
@@ -204,6 +204,9 @@ Nevi-owned behavior with no Vim equivalent to compare against.
 
 | Keybind | Behavior | Test |
 |---------|----------|----|
+| `ZZ` | Save if modified and quit | `normal_zz_writes_modified_file_and_quits` |
+| `ZQ` | Quit without saving | `normal_zq_quits_without_saving` |
+| `<C-^>` | Switch to the alternate buffer | `normal_ctrl_caret_toggles_between_the_last_two_buffers` |
 | `]m` | Move to next method/function start (tree-sitter) | `method_motion_jumps_between_function_starts` |
 | `[m` | Move to previous method/function start (tree-sitter) | `method_motion_jumps_between_function_starts` |
 | `]M` | Move to next method/function end (tree-sitter) | `method_motion_ends_land_on_closing_brace` |
@@ -232,7 +235,7 @@ like `dw` are tracked as single inventory entries, so their building-block
 rows may already be covered compositionally.)
 
 <details>
-<summary>214 untracked rows</summary>
+<summary>212 untracked rows</summary>
 
 | Keybind | Behavior |
 |---------|----------|
@@ -380,12 +383,10 @@ rows may already be covered compositionally.)
 | `:w!` / `:write!` | Force save file, overwriting external disk changes |
 | `:wa` / `:wall` | Save all files |
 | `:q` / `:quit` | Quit |
-| `:q!` / `:quit!` | Force quit (discard changes) |
 | `:qa` / `:qall` | Quit all |
 | `:qa!` / `:qall!` | Force quit all |
 | `:wq` | Save and quit |
 | `:wqa` / `:wqall` / `:xall` | Save all and quit |
-| `:x` / `:exit` / `ZZ` | Save if modified and quit |
 | `:xa` | Save all modified files and quit all |
 | `:e {file}` / `:edit {file}` | Edit/open a file |
 | `:e!` / `:edit!` | Reload current file and discard changes |
