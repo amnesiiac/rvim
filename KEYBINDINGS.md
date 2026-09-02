@@ -1024,6 +1024,8 @@ While typing an Ex command after `:`.
 | `:bd` / `:bdelete` | Close current buffer (fails if unsaved) |
 | `:bd!` / `:bdelete!` | Force close current buffer |
 
+> **Note:** The alternate file is tracked once for the whole editor, not per window like Vim, so switching buffers in one split also changes what `Ctrl+^` and the `"#` register point at in the other.
+
 ### Splits
 
 | Command | Action |
