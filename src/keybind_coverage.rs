@@ -1,6 +1,7 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum KeybindMode {
     Normal,
+    Insert,
     Leader,
 }
 
@@ -263,30 +264,40 @@ const KEYBIND_COVERAGE: &[KeybindCoverage] = &[
         "Last inserted text register",
         "last inserted text register",
     ),
-    vim_oracle(
+    insert_oracle(
         "<C-[>",
         "Exit insert mode",
         "ctrl-bracket exits insert like escape",
     ),
-    vim_oracle(
+    insert_oracle(
         "Backspace",
         "Delete character before cursor in insert",
         "insert backspace deletes typed chars",
     ),
-    vim_oracle(
+    insert_oracle(
         "<C-w>",
         "Delete word before cursor in insert",
         "insert ctrl-w deletes word before cursor",
     ),
-    vim_oracle(
+    insert_oracle(
         "<C-a>",
         "Insert previously inserted text",
         "insert ctrl-a repeats last inserted text",
     ),
-    vim_oracle(
+    insert_oracle(
         "Ctrl+r {reg}",
         "Insert register contents",
         "insert ctrl-r pastes named register",
+    ),
+    vim_oracle(
+        "<C-a>",
+        "Add count to the number at or after the cursor",
+        "increment number after cursor",
+    ),
+    vim_oracle(
+        "<C-x>",
+        "Subtract count from the number at or after the cursor",
+        "decrement number after cursor",
     ),
     vim_oracle("v", "Character-wise visual mode", "visual charwise delete"),
     vim_oracle("V", "Line-wise visual mode", "visual linewise delete"),
@@ -563,6 +574,24 @@ const fn vim_oracle(
 
 /// Nevi-owned behavior protected by a focused regression test rather than an
 /// oracle case (used where we deliberately deviate from Vim).
+/// Same as `vim_oracle`, for keys that act in insert mode. Kept separate so a
+/// key like `<C-a>` can be inventoried once per mode it means something in.
+const fn insert_oracle(
+    key: &'static str,
+    description: &'static str,
+    oracle_case: &'static str,
+) -> KeybindCoverage {
+    KeybindCoverage {
+        mode: KeybindMode::Insert,
+        key,
+        description,
+        kind: CoverageKind::VimOracle,
+        state: CoverageState::Protected {
+            test_id: oracle_case,
+        },
+    }
+}
+
 const fn nevi_regression(
     key: &'static str,
     description: &'static str,

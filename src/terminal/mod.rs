@@ -7783,6 +7783,10 @@ fn handle_normal_mode(editor: &mut Editor, key: KeyEvent) {
             editor.scroll_pane_viewport(editor.active_pane_idx(), count as isize);
         }
 
+        KeyAction::AddToNumber(delta) => {
+            editor.add_to_number_at_cursor(delta);
+        }
+
         KeyAction::ScrollLineUp(count) => {
             let delta = -(count.min(isize::MAX as usize) as isize);
             editor.scroll_pane_viewport(editor.active_pane_idx(), delta);

@@ -383,6 +383,15 @@ Operators are commands that wait for a motion. For example, `d` (delete) + `w` (
 > - `ci"` - Change inside quotes
 > - `ya(` - Yank around parentheses
 
+### Numbers
+
+| Key | Action |
+|-----|--------|
+| `Ctrl+a` / `{n}Ctrl+a` | Add 1 (or count) to the number at or after the cursor |
+| `Ctrl+x` / `{n}Ctrl+x` | Subtract 1 (or count) from the number at or after the cursor |
+
+> **Note:** Like Neovim's default `nrformats=bin,hex`: decimal numbers with an optional `-`, `0x` hex, and `0b` binary. Leading zeros keep their width (`007` becomes `008`), hex digits keep their case, and the cursor lands on the last digit. Works with `.` and undoes in one step.
+
 ### Undo/Redo
 
 | Key | Action |

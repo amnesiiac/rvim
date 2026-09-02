@@ -1,5 +1,6 @@
 mod buffer;
 mod cursor;
+mod increment;
 mod macros;
 mod marks;
 mod register;
@@ -7527,6 +7528,41 @@ impl Editor {
         ch.is_alphanumeric() || ch == '_'
     }
 
+    /// `Ctrl-a` / `Ctrl-x`: add `delta` to the number at or after the cursor.
+    /// One undo step, cursor on the last digit like Vim; no number on the
+    /// rest of the line is a silent no-op.
+    pub fn add_to_number_at_cursor(&mut self, delta: i64) {
+        if self.reject_read_only_edit() {
+            return;
+        }
+        let Some(line) = self.buffers[self.current_buffer_idx].line(self.cursor.line) else {
+            return;
+        };
+        let line_str: String = line.chars().collect();
+        let chars: Vec<char> = line_str.chars().collect();
+        let Some(change) = increment::add_to_number(&chars, self.cursor.col, delta) else {
+            return;
+        };
+        let mut new_line: String = chars[..change.start].iter().collect();
+        new_line.push_str(&change.text);
+        new_line.extend(&chars[change.start + change.len..]);
+
+        self.begin_change();
+        self.undo_stack.record_change(Change::replace_line(
+            self.cursor.line,
+            line_str,
+            new_line.clone(),
+        ));
+        self.buffers[self.current_buffer_idx].replace_line(self.cursor.line, &new_line);
+        self.buffers[self.current_buffer_idx].mark_modified();
+        self.cursor.col = change.cursor_col();
+        // A number can grow by many chars (0x0 minus one is 18 wide), so
+        // with wrap off the view has to follow the cursor like any motion.
+        self.scroll_to_cursor();
+        self.undo_stack
+            .end_undo_group(self.cursor.line, self.cursor.col);
+    }
+
     /// Search and replace text
     /// Returns the number of replacements made
     pub fn substitute(
@@ -12250,6 +12286,29 @@ mod tests {
 
     // The oracle can't see h_offset (its lines never scroll horizontally), so
     // the horizontal half of the origin restore needs a native regression.
+    #[test]
+    fn increment_keeps_grown_number_cursor_on_screen() {
+        let mut editor = Editor::default();
+        editor.set_size(40, 10);
+        editor.settings.editor.wrap = false;
+        editor.replace_buffer_content(&format!("{}0x0\n", "x".repeat(30)));
+        editor.cursor.col = 30;
+        editor.scroll_to_cursor();
+        assert_eq!(editor.h_offset, 0, "setup starts unscrolled");
+
+        // 0x0 minus one is 18 chars wide, pushing the cursor past the edge.
+        editor.add_to_number_at_cursor(-1);
+
+        assert_eq!(editor.cursor.col, 47);
+        assert!(
+            editor.cursor.col < editor.h_offset + editor.text_area_width(),
+            "cursor col {} not visible with h_offset {} and width {}",
+            editor.cursor.col,
+            editor.h_offset,
+            editor.text_area_width()
+        );
+    }
+
     #[test]
     fn cancelled_search_restores_cursor_viewport_and_h_offset() {
         let mut editor = Editor::default();

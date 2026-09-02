@@ -165,6 +165,9 @@ pub enum KeyAction {
     ScrollLineDown(usize),
     /// Scroll viewport up count lines without moving the cursor (<C-y>)
     ScrollLineUp(usize),
+    /// Add the signed amount to the number at or after the cursor
+    /// (<C-a> is +count, <C-x> is -count)
+    AddToNumber(i64),
     /// Repeat last change (.). Carries the typed count, if any: Vim treats
     /// an explicit count (even `1.`) as replacing the change's own count.
     RepeatLastChange(Option<usize>),
@@ -1052,6 +1055,16 @@ impl InputState {
             (KeyModifiers::CONTROL, KeyCode::Char('y')) => {
                 self.reset();
                 KeyAction::ScrollLineUp(count)
+            }
+
+            // <C-a>/<C-x> - add to / subtract from the number under the cursor
+            (KeyModifiers::CONTROL, KeyCode::Char('a')) => {
+                self.reset();
+                KeyAction::AddToNumber(count as i64)
+            }
+            (KeyModifiers::CONTROL, KeyCode::Char('x')) => {
+                self.reset();
+                KeyAction::AddToNumber(-(count as i64))
             }
 
             // Insert mode entry (or text object modifier if operator pending)
