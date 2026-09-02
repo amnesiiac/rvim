@@ -198,10 +198,60 @@ pub(super) const SEARCH_CASES: &[OracleCase] = &[
         initial_text: super::SCREEN_POSITION_TEXT,
         keys: "50Gzz/line 090<Esc>",
     },
+    // * and # search with word boundaries (\<word\>), so the word text inside
+    // a longer keyword is never a match. Every key that reuses the pattern
+    // (n, N, gn, gN, an empty / prompt) inherits the boundaries. The texts are
+    // deliberately asymmetric so a boundary bug cannot pass by landing on a
+    // match Vim reaches by a different route.
+    OracleCase {
+        name: "star skips match inside longer word",
+        initial_text: "abc abcdef\nabc\n",
+        keys: "*",
+    },
+    OracleCase {
+        name: "star with only embedded matches wraps to itself",
+        initial_text: "abc abcdef\n",
+        keys: "l*",
+    },
+    OracleCase {
+        name: "hash skips match inside longer word",
+        initial_text: "abc\nxabc abc\n",
+        keys: "j$#",
+    },
+    OracleCase {
+        name: "n after star keeps word boundaries",
+        initial_text: "abc abcdef\nabc\nabc_x abc\n",
+        keys: "*n",
+    },
+    OracleCase {
+        name: "gn after star selects the whole word only",
+        initial_text: "abc abcdef abc\n",
+        keys: "*gnd",
+    },
+    OracleCase {
+        name: "empty search repeat keeps star boundaries",
+        initial_text: "abc abcdef\nabcx\nabc\n",
+        keys: "*/<CR>",
+    },
+    // The boundary atoms can also be typed; this is the pattern * records.
+    OracleCase {
+        name: "typed word boundary pattern",
+        initial_text: "abcdef abc\n",
+        keys: "/\\<lt>abc\\><CR>",
+    },
+    // * adds \<abc\> to the search history: two Ups skip past the later
+    // /xyz entry and recall it. Without the history entry the second Up
+    // stays on xyz and the search lands back on line 3.
+    OracleCase {
+        name: "star records its pattern in search history",
+        initial_text: "abc abcdef\nabc\nxyz\n",
+        keys: "*/xyz<CR>/<Up><Up><CR>",
+    },
 ];
 
 // Known divergence, deliberately not an active case (it would fail CI):
-// vim's * searches with word boundaries (\<abc\>), Nevi searches the literal
-// word text, so * on "abc" also matches inside "abcdef".
-//   initial_text: "abc abcdef\nabc\n", keys: "*"
-//   nvim lands on (1, 0); Nevi lands on (0, 4).
+// backward search only considers matches that END before the cursor, Vim
+// considers matches that START before it, and `#` does not first move to
+// the word start like Vim's nv_ident does. Verified vs nvim 0.11.3:
+//   initial_text: "abcabc\n", keys: "ll?abc<CR>"  nvim (0, 0); Nevi (0, 3)
+//   initial_text: "x beta\n", keys: "3l#"         nvim (0, 2); Nevi (0, 3)

@@ -13,6 +13,7 @@
 
 ### Vim Compatibility
 
+- `*` and `#` now search for the whole word only, like Vim's `\<word\>`, so `*` on `abc` no longer stops inside `abcdef`. Everything that reuses the pattern follows along: `n`, `N`, `gn`, `gN`, the highlights, the match counter, and an empty `/` prompt. The pattern also goes into the search history, so `/` then Up recalls it. Typing `\<` and `\>` in a search works the same way; plain patterns still match inside words. (#310)
 - Search now anchors at the position where `/` or `?` was pressed, like Vim. Every keystroke evaluates the whole pattern from that origin instead of chasing the cursor around, so editing the pattern with backspace cannot land on an earlier match than Vim would. Escape cancels back to the original cursor and view, and a pattern with no match leaves the cursor where the search started.
 - Repeating a search with an empty prompt (`/` or `?` then Enter) now moves off a match under the cursor instead of standing still, and it updates the direction that `n` and `N` follow, so `n` after `?` and Enter keeps searching backward.
 - `n` and `N` now take a count, so `3n` jumps three matches ahead.
