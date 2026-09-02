@@ -74,6 +74,23 @@ const KEYBIND_COVERAGE: &[KeybindCoverage] = &[
     // Method motions deliberately deviate from Vim's brace heuristic (they
     // use tree-sitter function boundaries), so they carry Nevi regression
     // tests instead of oracle cases.
+    // Quit and buffer keys cannot be oracle cases: quitting ends the nvim
+    // snapshot and the harness runs a single scratch buffer.
+    nevi_regression(
+        "ZZ",
+        "Save if modified and quit",
+        "normal_zz_writes_modified_file_and_quits",
+    ),
+    nevi_regression(
+        "ZQ",
+        "Quit without saving",
+        "normal_zq_quits_without_saving",
+    ),
+    nevi_regression(
+        "<C-^>",
+        "Switch to the alternate buffer",
+        "normal_ctrl_caret_toggles_between_the_last_two_buffers",
+    ),
     nevi_regression(
         "]m",
         "Move to next method/function start (tree-sitter)",

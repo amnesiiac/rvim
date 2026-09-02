@@ -7787,6 +7787,14 @@ fn handle_normal_mode(editor: &mut Editor, key: KeyEvent) {
             editor.add_to_number_at_cursor(delta);
         }
 
+        KeyAction::ForceQuit => {
+            execute_command(editor, Command::ForceQuit);
+        }
+
+        KeyAction::AlternateBuffer => {
+            editor.switch_to_alternate_buffer();
+        }
+
         KeyAction::ScrollLineUp(count) => {
             let delta = -(count.min(isize::MAX as usize) as isize);
             editor.scroll_pane_viewport(editor.active_pane_idx(), delta);
@@ -15508,6 +15516,154 @@ mod tests {
 
         assert!(!editor.should_quit);
         assert_eq!(editor.status_message.as_deref(), Some("E: No filename"));
+    }
+
+    #[test]
+    fn normal_zq_quits_without_saving() {
+        let tmp = unique_temp_dir("nevi_normal_zq_quit");
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let path = tmp.join("note.txt");
+        std::fs::write(&path, "original\n").expect("write original");
+
+        let mut editor = Editor::default();
+        editor.open_file(path.clone()).expect("open file");
+        editor.replace_buffer_content("local edit\n");
+
+        handle_key(&mut editor, shift_key('Z'));
+        handle_key(&mut editor, shift_key('Q'));
+
+        assert!(editor.should_quit);
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("read file"),
+            "original\n"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn normal_zq_closes_only_the_active_pane_when_split() {
+        let mut editor = Editor::default();
+        editor.replace_buffer_content("scratch\n");
+        editor.vsplit(None).expect("split");
+        assert_eq!(editor.panes().len(), 2);
+
+        handle_key(&mut editor, shift_key('Z'));
+        handle_key(&mut editor, shift_key('Q'));
+
+        assert!(!editor.should_quit);
+        assert_eq!(editor.panes().len(), 1);
+    }
+
+    #[test]
+    fn normal_ctrl_caret_toggles_between_the_last_two_buffers() {
+        let tmp = unique_temp_dir("nevi_alternate_buffer");
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let first = tmp.join("first.txt");
+        let second = tmp.join("second.txt");
+        std::fs::write(&first, "first\n").expect("write first");
+        std::fs::write(&second, "second\n").expect("write second");
+
+        let mut editor = Editor::default();
+        editor.open_file(first.clone()).expect("open first");
+        editor.open_file(second.clone()).expect("open second");
+        assert_eq!(editor.buffer().path.as_deref(), Some(second.as_path()));
+
+        handle_key(&mut editor, ctrl_key('^'));
+        assert_eq!(editor.buffer().path.as_deref(), Some(first.as_path()));
+
+        handle_key(&mut editor, ctrl_key('^'));
+        assert_eq!(editor.buffer().path.as_deref(), Some(second.as_path()));
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn normal_ctrl_caret_reopens_a_closed_alternate() {
+        let tmp = unique_temp_dir("nevi_alternate_buffer_reopen");
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let first = tmp.join("first.txt");
+        let second = tmp.join("second.txt");
+        std::fs::write(&first, "first\n").expect("write first");
+        std::fs::write(&second, "second\n").expect("write second");
+
+        let mut editor = Editor::default();
+        editor.open_file(first.clone()).expect("open first");
+        editor.open_file(second.clone()).expect("open second");
+        editor.close_current_buffer();
+        assert_eq!(editor.buffer().path.as_deref(), Some(first.as_path()));
+
+        handle_key(&mut editor, ctrl_key('^'));
+
+        assert_eq!(editor.buffer().path.as_deref(), Some(second.as_path()));
+        assert_eq!(editor.buffer().content(), "second\n");
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn normal_ctrl_caret_without_alternate_reports_and_stays() {
+        let mut editor = Editor::default();
+        editor.replace_buffer_content("only\n");
+
+        handle_key(&mut editor, ctrl_key('^'));
+
+        assert_eq!(editor.buffer().content(), "only\n");
+        assert_eq!(editor.status_message.as_deref(), Some("No alternate file"));
+    }
+
+    #[test]
+    fn normal_ctrl_caret_keeps_unsaved_edits_in_the_hidden_buffer() {
+        let tmp = unique_temp_dir("nevi_alternate_buffer_hidden_edit");
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let first = tmp.join("first.txt");
+        let second = tmp.join("second.txt");
+        std::fs::write(&first, "first\n").expect("write first");
+        std::fs::write(&second, "second\n").expect("write second");
+
+        let mut editor = Editor::default();
+        editor.open_file(first.clone()).expect("open first");
+        editor.open_file(second.clone()).expect("open second");
+        editor.replace_buffer_content("second edited\n");
+
+        handle_key(&mut editor, ctrl_key('^'));
+        assert_eq!(editor.buffer().path.as_deref(), Some(first.as_path()));
+        handle_key(&mut editor, ctrl_key('^'));
+
+        assert_eq!(editor.buffer().path.as_deref(), Some(second.as_path()));
+        assert_eq!(editor.buffer().content(), "second edited\n");
+        assert!(editor.buffer().dirty);
+        assert_eq!(
+            std::fs::read_to_string(&second).expect("read second"),
+            "second\n"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn normal_ctrl_caret_on_a_deleted_alternate_opens_it_as_a_new_file() {
+        let tmp = unique_temp_dir("nevi_alternate_buffer_deleted");
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let first = tmp.join("first.txt");
+        let second = tmp.join("second.txt");
+        std::fs::write(&first, "first\n").expect("write first");
+        std::fs::write(&second, "second\n").expect("write second");
+
+        let mut editor = Editor::default();
+        editor.open_file(first.clone()).expect("open first");
+        editor.open_file(second.clone()).expect("open second");
+        editor.close_current_buffer();
+        std::fs::remove_file(&second).expect("delete second");
+
+        handle_key(&mut editor, ctrl_key('^'));
+
+        // Same as `:e` on a name that does not exist yet: an empty buffer
+        // under that path, ready to be written.
+        assert_eq!(editor.buffer().path.as_deref(), Some(second.as_path()));
+        assert!(editor.buffer().content().trim().is_empty());
+
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]

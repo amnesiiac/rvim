@@ -13,6 +13,7 @@
 
 ### Vim Compatibility
 
+- Added `ZQ` to quit without saving, the same as `:q!`, and `Ctrl+^` to switch to the alternate buffer, the one the window showed before the current one. `Ctrl+^` reopens the file if its buffer was closed, and reports "No alternate file" when there is none. `Ctrl+6` works too, since that is the byte most terminals send for `Ctrl+^`.
 - Added `Ctrl+a` and `Ctrl+x` to add to or subtract from the number at or after the cursor, with a count. Follows Neovim's default `nrformats=bin,hex`: decimal with a minus sign, `0x` hex, `0b` binary, leading zeros keep their width, hex digits keep their case. Works with `.` and undoes in one step. Verified against real Neovim in a new oracle category.
 - A count before `i` or `a` now repeats the typed text like Vim, so `3ix<Esc>` gives `xxx`. `I`, `A`, `o`, and `O` already did this; the count is now set in one place for all six. (#296)
 - `*` and `#` now search for the whole word only, like Vim's `\<word\>`, so `*` on `abc` no longer stops inside `abcdef`. Everything that reuses the pattern follows along: `n`, `N`, `gn`, `gN`, the highlights, the match counter, and an empty `/` prompt. The pattern also goes into the search history, so `/` then Up recalls it. Typing `\<` and `\>` in a search works the same way; plain patterns still match inside words. (#310)

@@ -57,6 +57,20 @@ desc = "Write if modified and quit"
 status = "implemented"
 vim_default = true
 
+[[normal.file]]
+key = "ZQ"
+action = "force_quit"
+desc = "Quit without saving"
+status = "implemented"
+vim_default = true
+
+[[normal.file]]
+key = "<C-^>"
+action = "alternate_buffer"
+desc = "Switch to the alternate buffer"
+status = "implemented"
+vim_default = true
+
 # ----------------------------------------------------------------------------
 # Movement - Basic cursor movement
 # ----------------------------------------------------------------------------

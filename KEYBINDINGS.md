@@ -982,7 +982,7 @@ While typing an Ex command after `:`.
 | `:w!` / `:write!` | Force save file, overwriting external disk changes |
 | `:wa` / `:wall` | Save all files |
 | `:q` / `:quit` | Quit |
-| `:q!` / `:quit!` | Force quit (discard changes) |
+| `:q!` / `:quit!` / `ZQ` | Force quit (discard changes) |
 | `:qa` / `:qall` | Quit all |
 | `:qa!` / `:qall!` | Force quit all |
 | `:wq` | Save and quit |
@@ -1020,8 +1020,11 @@ While typing an Ex command after `:`.
 |---------|--------|
 | `:bn` | Next buffer |
 | `:bp` | Previous buffer |
+| `Ctrl+^` | Switch to the alternate buffer, the one this window showed last (reopens it if closed) |
 | `:bd` / `:bdelete` | Close current buffer (fails if unsaved) |
 | `:bd!` / `:bdelete!` | Force close current buffer |
+
+> **Note:** The alternate file is tracked once for the whole editor, not per window like Vim, so switching buffers in one split also changes what `Ctrl+^` and the `"#` register point at in the other.
 
 ### Splits
 
