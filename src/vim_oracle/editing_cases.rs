@@ -684,14 +684,18 @@ pub(super) const EDITING_CASES: &[OracleCase] = &[
         initial_text: "\n",
         keys: "i<C-v><C-y>x<C-q><C-y><Esc>",
     },
-    // The literal must belong to the surrounding insert session for undo and
-    // dot repeat. A counted variant (3i<C-v>..) is blocked on the pre-existing
-    // bug that counted lowercase i never repeats; a <C-v><CR> variant is
-    // blocked on ropey treating a bare CR as a line break.
+    // The literal must belong to the surrounding insert session for undo,
+    // counts, and dot repeat. A <C-v><CR> variant is blocked on ropey
+    // treating a bare CR as a line break.
     OracleCase {
         name: "undo removes literal insert with its session",
         initial_text: "\n",
         keys: "i<C-v><C-y><Esc>u",
+    },
+    OracleCase {
+        name: "counted literal insert repeats the control char",
+        initial_text: "\n",
+        keys: "3i<C-v><C-y><Esc>",
     },
     OracleCase {
         name: "dot repeat replays literal insert",

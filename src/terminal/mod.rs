@@ -7671,11 +7671,12 @@ fn handle_normal_mode(editor: &mut Editor, key: KeyEvent) {
             match pos {
                 InsertPosition::AtCursor => editor.enter_insert_mode(),
                 InsertPosition::AfterCursor => editor.enter_insert_mode_append(),
-                InsertPosition::LineStart => editor.enter_insert_mode_start_counted(count),
-                InsertPosition::LineEnd => editor.enter_insert_mode_end_counted(count),
-                InsertPosition::NewLineBelow => editor.open_line_below_counted(count),
-                InsertPosition::NewLineAbove => editor.open_line_above_counted(count),
+                InsertPosition::LineStart => editor.enter_insert_mode_start(),
+                InsertPosition::LineEnd => editor.enter_insert_mode_end(),
+                InsertPosition::NewLineBelow => editor.open_line_below(),
+                InsertPosition::NewLineAbove => editor.open_line_above(),
             }
+            editor.set_insert_repeat_count(count);
             let action_elapsed = t_action.elapsed();
             let total = t_start.elapsed();
             if total.as_micros() > 1000 {

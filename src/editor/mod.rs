@@ -5439,9 +5439,10 @@ impl Editor {
             .prefer_current_cursor_after(self.cursor.line, self.cursor.col);
     }
 
-    /// Enter insert mode at end of line with Vim's counted-insert semantics.
-    pub fn enter_insert_mode_end_counted(&mut self, count: usize) {
-        self.enter_insert_mode_end();
+    /// Vim's counted insert: `3ix<Esc>` types the session's text three
+    /// times. Shared by every insert entry point (i, a, I, A, o, O) so none
+    /// of them can drop the count; a no-op when entry was refused.
+    pub fn set_insert_repeat_count(&mut self, count: usize) {
         if self.mode == Mode::Insert {
             self.insert_session_repeat_count = count.max(1);
         }
@@ -5475,14 +5476,6 @@ impl Editor {
         self.begin_change();
         self.undo_stack
             .prefer_current_cursor_after(self.cursor.line, self.cursor.col);
-    }
-
-    /// Enter insert mode at first non-blank with Vim's counted-insert semantics.
-    pub fn enter_insert_mode_start_counted(&mut self, count: usize) {
-        self.enter_insert_mode_start();
-        if self.mode == Mode::Insert {
-            self.insert_session_repeat_count = count.max(1);
-        }
     }
 
     /// Temporarily leave insert mode so the next normal command can run.
@@ -6355,14 +6348,6 @@ impl Editor {
         self.scroll_to_cursor();
     }
 
-    /// Open a line below and repeat the completed insertion `count` times.
-    pub fn open_line_below_counted(&mut self, count: usize) {
-        self.open_line_below();
-        if self.mode == Mode::Insert {
-            self.insert_session_repeat_count = count.max(1);
-        }
-    }
-
     /// Open a new line above and enter insert mode
     pub fn open_line_above(&mut self) {
         let redo_cursor = (self.cursor.line, self.cursor.col);
@@ -6391,14 +6376,6 @@ impl Editor {
         self.insert_session_open_line_indent = Some(indent);
         self.record_inserted_text(&insert_text);
         self.scroll_to_cursor();
-    }
-
-    /// Open a line above and repeat the completed insertion `count` times.
-    pub fn open_line_above_counted(&mut self, count: usize) {
-        self.open_line_above();
-        if self.mode == Mode::Insert {
-            self.insert_session_repeat_count = count.max(1);
-        }
     }
 
     /// Save the current buffer
