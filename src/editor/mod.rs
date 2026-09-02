@@ -4,6 +4,7 @@ mod macros;
 mod marks;
 mod register;
 mod replace;
+mod search_pattern;
 mod undo;
 
 pub use buffer::Buffer;
@@ -14,6 +15,7 @@ pub use register::{RegisterContent, Registers};
 pub use undo::{Change, UndoEntry, UndoStack};
 
 use replace::ReplaceSession;
+use search_pattern::SearchPattern;
 
 use crate::commands::CommandLine;
 use crate::config::{KeymapLookup, LeaderAction, LeaderHint, Settings};
@@ -7074,6 +7076,7 @@ impl Editor {
     /// skipped in large-file mode so search stays a single buffer pass there.
     fn update_search_match_stats(&mut self, pattern: &str) {
         self.search.match_stats = None;
+        let pattern = SearchPattern::parse(pattern);
         if pattern.is_empty() || self.current_buffer_large_file_mode_active() {
             return;
         }
@@ -7087,8 +7090,7 @@ impl Editor {
             };
             let line_str: String = line.chars().collect();
             let mut search_from = 0;
-            while let Some(byte_pos) = line_str[search_from..].find(pattern) {
-                let match_byte_start = search_from + byte_pos;
+            while let Some(match_byte_start) = pattern.find(&line_str, search_from) {
                 total += 1;
                 // Byte→char conversion only matters on the cursor's line.
                 if line_idx == self.cursor.line
@@ -7096,7 +7098,7 @@ impl Editor {
                 {
                     current = Some(total);
                 }
-                search_from = match_byte_start + pattern.len();
+                search_from = match_byte_start + pattern.text.len();
             }
         }
 
@@ -7112,6 +7114,7 @@ impl Editor {
         self.search_matches.clear();
         self.render_damage.mark_full();
 
+        let pattern = SearchPattern::parse(pattern);
         if pattern.is_empty() {
             return;
         }
@@ -7121,7 +7124,7 @@ impl Editor {
             return;
         }
 
-        let pattern_len = pattern.chars().count();
+        let pattern_len = pattern.text.chars().count();
 
         // Find all matches in the buffer
         for line_idx in 0..total_lines {
@@ -7131,9 +7134,8 @@ impl Editor {
                 // Find all occurrences in this line
                 let mut search_from = 0;
                 while search_from < line_str.len() {
-                    if let Some(byte_pos) = line_str[search_from..].find(pattern) {
-                        let match_byte_start = search_from + byte_pos;
-                        let match_byte_end = match_byte_start + pattern.len();
+                    if let Some(match_byte_start) = pattern.find(&line_str, search_from) {
+                        let match_byte_end = match_byte_start + pattern.text.len();
 
                         // Convert byte positions to char positions
                         let start_col = Self::byte_to_char_idx(&line_str, match_byte_start);
@@ -7155,6 +7157,7 @@ impl Editor {
         self.search_matches.clear();
         self.render_damage.mark_full();
 
+        let pattern = SearchPattern::parse(pattern);
         if pattern.is_empty() {
             return;
         }
@@ -7168,7 +7171,7 @@ impl Editor {
         let end_line = viewport_offset
             .saturating_add(visible_rows)
             .min(total_lines);
-        let pattern_len = pattern.chars().count();
+        let pattern_len = pattern.text.chars().count();
 
         'lines: for line_idx in viewport_offset..end_line {
             if let Some(line) = self.buffers[self.current_buffer_idx].line(line_idx) {
@@ -7176,9 +7179,8 @@ impl Editor {
                 let mut search_from = 0;
 
                 while search_from < line_str.len() {
-                    if let Some(byte_pos) = line_str[search_from..].find(pattern) {
-                        let match_byte_start = search_from + byte_pos;
-                        let match_byte_end = match_byte_start + pattern.len();
+                    if let Some(match_byte_start) = pattern.find(&line_str, search_from) {
+                        let match_byte_end = match_byte_start + pattern.text.len();
                         let start_col = Self::byte_to_char_idx(&line_str, match_byte_start);
                         let end_col = start_col + pattern_len;
 
@@ -7208,41 +7210,34 @@ impl Editor {
 
     /// Search for word under cursor forward (*)
     pub fn search_word_forward(&mut self) {
-        self.render_damage.mark_full();
-        if let Some(word) = self.get_word_under_cursor() {
-            // Set as search pattern
-            self.search.last_pattern = Some(word.clone());
-            self.search.last_direction = SearchDirection::Forward;
-            if self.do_search(&word, SearchDirection::Forward, true) {
-                self.refresh_visible_search_matches(&word);
-                self.update_search_match_stats(&word);
-            } else {
-                self.search_matches.clear();
-                self.search.match_stats = None;
-                self.set_status(format!("Pattern not found: {}", word));
-            }
-        } else {
-            self.set_status("No word under cursor");
-        }
+        self.search_word_under_cursor(SearchDirection::Forward);
     }
 
     /// Search for word under cursor backward (#)
     pub fn search_word_backward(&mut self) {
+        self.search_word_under_cursor(SearchDirection::Backward);
+    }
+
+    /// Shared `*`/`#` body. Like Vim, the recorded pattern is `\<word\>`
+    /// (whole keyword only) and it goes into the search history, so `n`,
+    /// `gn`, and `/` followed by Up all see the same bounded pattern.
+    fn search_word_under_cursor(&mut self, direction: SearchDirection) {
         self.render_damage.mark_full();
-        if let Some(word) = self.get_word_under_cursor() {
-            // Set as search pattern
-            self.search.last_pattern = Some(word.clone());
-            self.search.last_direction = SearchDirection::Backward;
-            if self.do_search(&word, SearchDirection::Backward, true) {
-                self.refresh_visible_search_matches(&word);
-                self.update_search_match_stats(&word);
-            } else {
-                self.search_matches.clear();
-                self.search.match_stats = None;
-                self.set_status(format!("Pattern not found: {}", word));
-            }
-        } else {
+        let Some(word) = self.get_word_under_cursor() else {
             self.set_status("No word under cursor");
+            return;
+        };
+        let pattern = SearchPattern::whole_word(&word);
+        self.search.record_history(pattern.clone());
+        self.search.last_pattern = Some(pattern.clone());
+        self.search.last_direction = direction;
+        if self.do_search(&pattern, direction, true) {
+            self.refresh_visible_search_matches(&pattern);
+            self.update_search_match_stats(&pattern);
+        } else {
+            self.search_matches.clear();
+            self.search.match_stats = None;
+            self.set_status(format!("Pattern not found: {}", pattern));
         }
     }
 
@@ -7677,10 +7672,11 @@ impl Editor {
         wrap: bool,
     ) -> Option<(usize, usize, bool)> {
         let total_lines = self.buffers[self.current_buffer_idx].len_lines();
+        let pattern = SearchPattern::parse(pattern);
         if total_lines == 0 || pattern.is_empty() {
             return None;
         }
-        let pattern_len = pattern.chars().count();
+        let pattern_len = pattern.text.chars().count();
 
         match direction {
             SearchDirection::Forward => {
@@ -7691,8 +7687,7 @@ impl Editor {
                     let search_start = self.cursor.col + 1;
                     let search_start_byte = Self::char_to_byte_idx(&line_str, search_start);
                     if search_start_byte < line_str.len() {
-                        if let Some(pos) = line_str[search_start_byte..].find(pattern) {
-                            let byte_pos = search_start_byte + pos;
+                        if let Some(byte_pos) = pattern.find(&line_str, search_start_byte) {
                             return Some((
                                 self.cursor.line,
                                 Self::byte_to_char_idx(&line_str, byte_pos),
@@ -7706,13 +7701,16 @@ impl Editor {
                 for line_idx in (self.cursor.line + 1)..total_lines {
                     if let Some(line) = self.buffers[self.current_buffer_idx].line(line_idx) {
                         let line_str: String = line.chars().collect();
-                        if let Some(pos) = line_str.find(pattern) {
+                        if let Some(pos) = pattern.find(&line_str, 0) {
                             return Some((line_idx, Self::byte_to_char_idx(&line_str, pos), false));
                         }
                     }
                 }
 
-                // Wrap around if enabled
+                // Wrap around if enabled. On the cursor's line only a match
+                // starting at or before the cursor counts; the search is run
+                // on the whole line so the word boundary after the match is
+                // checked against the real neighbor, not a sliced end.
                 if wrap {
                     for line_idx in 0..=self.cursor.line {
                         if let Some(line) = self.buffers[self.current_buffer_idx].line(line_idx) {
@@ -7723,8 +7721,9 @@ impl Editor {
                                 line_str.chars().count()
                             };
                             let end_byte = Self::char_to_byte_idx(&line_str, end_col);
-                            if let Some(pos) =
-                                line_str[..end_byte.min(line_str.len())].find(pattern)
+                            if let Some(pos) = pattern
+                                .find(&line_str, 0)
+                                .filter(|pos| pos + pattern.text.len() <= end_byte)
                             {
                                 return Some((
                                     line_idx,
@@ -7743,7 +7742,7 @@ impl Editor {
                     let line_str: String = line.chars().collect();
                     if self.cursor.col > 0 {
                         let end_byte = Self::char_to_byte_idx(&line_str, self.cursor.col);
-                        if let Some(pos) = line_str[..end_byte].rfind(pattern) {
+                        if let Some(pos) = pattern.rfind(&line_str, end_byte) {
                             return Some((
                                 self.cursor.line,
                                 Self::byte_to_char_idx(&line_str, pos),
@@ -7757,13 +7756,15 @@ impl Editor {
                 for line_idx in (0..self.cursor.line).rev() {
                     if let Some(line) = self.buffers[self.current_buffer_idx].line(line_idx) {
                         let line_str: String = line.chars().collect();
-                        if let Some(pos) = line_str.rfind(pattern) {
+                        if let Some(pos) = pattern.rfind(&line_str, line_str.len()) {
                             return Some((line_idx, Self::byte_to_char_idx(&line_str, pos), false));
                         }
                     }
                 }
 
-                // Wrap around if enabled
+                // Wrap around if enabled. Same whole-line reasoning as the
+                // forward wrap: the last match is taken, then filtered to
+                // start at or after the cursor.
                 if wrap {
                     for line_idx in (self.cursor.line..total_lines).rev() {
                         if let Some(line) = self.buffers[self.current_buffer_idx].line(line_idx) {
@@ -7774,14 +7775,15 @@ impl Editor {
                                 0
                             };
                             let start_byte = Self::char_to_byte_idx(&line_str, start_col);
-                            if start_byte < line_str.len() {
-                                if let Some(pos) = line_str[start_byte..].rfind(pattern) {
-                                    return Some((
-                                        line_idx,
-                                        Self::byte_to_char_idx(&line_str, start_byte + pos),
-                                        true,
-                                    ));
-                                }
+                            if let Some(pos) = pattern
+                                .rfind(&line_str, line_str.len())
+                                .filter(|&pos| pos >= start_byte)
+                            {
+                                return Some((
+                                    line_idx,
+                                    Self::byte_to_char_idx(&line_str, pos),
+                                    true,
+                                ));
                             }
                         }
                     }
@@ -12399,6 +12401,27 @@ mod tests {
         assert_ne!(
             editor.status_message.as_deref(),
             Some("Pattern not found: old_render_target_24000")
+        );
+    }
+
+    #[test]
+    fn star_highlights_and_counter_skip_embedded_words() {
+        let mut editor = Editor::default();
+        editor.set_size(80, 8);
+        editor.replace_buffer_content("abc abcdef\nabc\n");
+
+        editor.search_word_forward();
+
+        // The oracle pins the cursor; this pins what it cannot see: the
+        // highlight set, the [current/total] counter, and the recorded
+        // pattern, none of which may include the `abc` inside `abcdef`.
+        assert_eq!((editor.cursor.line, editor.cursor.col), (1, 0));
+        assert_eq!(editor.search_matches, vec![(0, 0, 3), (1, 0, 3)]);
+        assert_eq!(editor.search.match_stats, Some((2, 2)));
+        assert_eq!(editor.search.last_pattern.as_deref(), Some("\\<abc\\>"));
+        assert_eq!(
+            editor.search.history.last().map(String::as_str),
+            Some("\\<abc\\>")
         );
     }
 
