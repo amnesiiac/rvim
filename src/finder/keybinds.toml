@@ -561,6 +561,20 @@ status = "implemented"
 vim_default = true
 
 [[normal.editing]]
+key = "<C-a>"
+action = "add_to_number"
+desc = "Add count to the number at or after the cursor"
+status = "implemented"
+vim_default = true
+
+[[normal.editing]]
+key = "<C-x>"
+action = "subtract_from_number"
+desc = "Subtract count from the number at or after the cursor"
+status = "implemented"
+vim_default = true
+
+[[normal.editing]]
 key = "."
 action = "repeat_last_change"
 desc = "Repeat last change"

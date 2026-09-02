@@ -1,5 +1,6 @@
 mod buffer;
 mod cursor;
+mod increment;
 mod macros;
 mod marks;
 mod register;
@@ -7525,6 +7526,38 @@ impl Editor {
     /// Check if a character is a word character (alphanumeric or underscore)
     fn is_word_char(ch: char) -> bool {
         ch.is_alphanumeric() || ch == '_'
+    }
+
+    /// `Ctrl-a` / `Ctrl-x`: add `delta` to the number at or after the cursor.
+    /// One undo step, cursor on the last digit like Vim; no number on the
+    /// rest of the line is a silent no-op.
+    pub fn add_to_number_at_cursor(&mut self, delta: i64) {
+        if self.reject_read_only_edit() {
+            return;
+        }
+        let Some(line) = self.buffers[self.current_buffer_idx].line(self.cursor.line) else {
+            return;
+        };
+        let line_str: String = line.chars().collect();
+        let chars: Vec<char> = line_str.chars().collect();
+        let Some(change) = increment::add_to_number(&chars, self.cursor.col, delta) else {
+            return;
+        };
+        let mut new_line: String = chars[..change.start].iter().collect();
+        new_line.push_str(&change.text);
+        new_line.extend(&chars[change.start + change.len..]);
+
+        self.begin_change();
+        self.undo_stack.record_change(Change::replace_line(
+            self.cursor.line,
+            line_str,
+            new_line.clone(),
+        ));
+        self.buffers[self.current_buffer_idx].replace_line(self.cursor.line, &new_line);
+        self.buffers[self.current_buffer_idx].mark_modified();
+        self.cursor.col = change.cursor_col();
+        self.undo_stack
+            .end_undo_group(self.cursor.line, self.cursor.col);
     }
 
     /// Search and replace text
