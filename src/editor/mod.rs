@@ -7237,24 +7237,39 @@ impl Editor {
 
     /// Search for word under cursor forward (*)
     pub fn search_word_forward(&mut self) {
-        self.search_word_under_cursor(SearchDirection::Forward);
+        self.search_word_under_cursor(SearchDirection::Forward, true);
     }
 
     /// Search for word under cursor backward (#)
     pub fn search_word_backward(&mut self) {
-        self.search_word_under_cursor(SearchDirection::Backward);
+        self.search_word_under_cursor(SearchDirection::Backward, true);
     }
 
-    /// Shared `*`/`#` body. Like Vim, the recorded pattern is `\<word\>`
-    /// (whole keyword only) and it goes into the search history, so `n`,
-    /// `gn`, and `/` followed by Up all see the same bounded pattern.
-    fn search_word_under_cursor(&mut self, direction: SearchDirection) {
+    /// g*: like `*` but the match may sit inside a longer word.
+    pub fn search_word_forward_anywhere(&mut self) {
+        self.search_word_under_cursor(SearchDirection::Forward, false);
+    }
+
+    /// g#: like `#` but the match may sit inside a longer word.
+    pub fn search_word_backward_anywhere(&mut self) {
+        self.search_word_under_cursor(SearchDirection::Backward, false);
+    }
+
+    /// Shared `*`/`#`/`g*`/`g#` body. Like Vim, the recorded pattern is
+    /// `\<word\>` for the whole-word forms and the bare word for the `g`
+    /// forms, and it goes into the search history, so `n`, `gn`, and `/`
+    /// followed by Up all see the same pattern.
+    fn search_word_under_cursor(&mut self, direction: SearchDirection, whole_word: bool) {
         self.render_damage.mark_full();
         let Some(word) = self.get_word_under_cursor() else {
             self.set_status("No word under cursor");
             return;
         };
-        let pattern = SearchPattern::whole_word(&word);
+        let pattern = if whole_word {
+            SearchPattern::whole_word(&word)
+        } else {
+            word
+        };
         self.search.record_history(pattern.clone());
         self.search.last_pattern = Some(pattern.clone());
         self.search.last_direction = direction;
@@ -12640,6 +12655,27 @@ mod tests {
         assert_eq!(
             editor.search.history.last().map(String::as_str),
             Some("\\<abc\\>")
+        );
+    }
+
+    #[test]
+    fn g_star_highlights_and_counter_include_embedded_words() {
+        let mut editor = Editor::default();
+        editor.set_size(80, 8);
+        editor.replace_buffer_content("abc abcdef\nabc\n");
+
+        editor.search_word_forward_anywhere();
+
+        // Mirror of the `*` test: with g* the embedded `abc` inside `abcdef`
+        // is a match for the highlights and the counter, and the recorded
+        // pattern is the bare word.
+        assert_eq!((editor.cursor.line, editor.cursor.col), (0, 4));
+        assert_eq!(editor.search_matches, vec![(0, 0, 3), (0, 4, 7), (1, 0, 3)]);
+        assert_eq!(editor.search.match_stats, Some((2, 3)));
+        assert_eq!(editor.search.last_pattern.as_deref(), Some("abc"));
+        assert_eq!(
+            editor.search.history.last().map(String::as_str),
+            Some("abc")
         );
     }
 

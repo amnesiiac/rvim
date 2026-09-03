@@ -201,6 +201,10 @@ pub enum KeyAction {
     SearchPrev(usize),
     /// Search word under cursor forward (*)
     SearchWordForward,
+    /// g*: like * but without word boundaries
+    SearchWordForwardAnywhere,
+    /// g#: like # but without word boundaries
+    SearchWordBackwardAnywhere,
     /// Search word under cursor backward (#)
     SearchWordBackward,
     /// Search forward and select the match (gn)
@@ -1398,6 +1402,15 @@ impl InputState {
                 action
             }
             // g^ - move to first non-blank of current display line
+            // g* / g# - word search without the word boundaries
+            ('g', _, KeyCode::Char('*')) => {
+                self.reset();
+                KeyAction::SearchWordForwardAnywhere
+            }
+            ('g', _, KeyCode::Char('#')) => {
+                self.reset();
+                KeyAction::SearchWordBackwardAnywhere
+            }
             ('g', KeyModifiers::NONE, KeyCode::Char('^')) => {
                 let action = self.motion_or_operator(Motion::DisplayLineFirstNonBlank, count);
                 self.reset();
@@ -2729,6 +2742,14 @@ mod tests {
         match run(&[key('#')]) {
             KeyAction::SearchWordBackward => {}
             other => panic!("expected SearchWordBackward, got {:?}", other),
+        }
+        match run(&[key('g'), key('*')]) {
+            KeyAction::SearchWordForwardAnywhere => {}
+            other => panic!("expected SearchWordForwardAnywhere, got {:?}", other),
+        }
+        match run(&[key('g'), key('#')]) {
+            KeyAction::SearchWordBackwardAnywhere => {}
+            other => panic!("expected SearchWordBackwardAnywhere, got {:?}", other),
         }
         match run(&[key('g'), key('n')]) {
             KeyAction::SearchSelectNext(1) => {}

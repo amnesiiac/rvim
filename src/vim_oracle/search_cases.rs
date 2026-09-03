@@ -247,6 +247,43 @@ pub(super) const SEARCH_CASES: &[OracleCase] = &[
         initial_text: "abc abcdef\nabc\nxyz\n",
         keys: "*/xyz<CR>/<Up><Up><CR>",
     },
+    // g* and g# search the word without boundaries, so a match inside a
+    // longer word counts, and n keeps that looser pattern.
+    OracleCase {
+        name: "g-star finds match inside longer word",
+        initial_text: "abc abcdef\nabc\n",
+        keys: "g*",
+    },
+    OracleCase {
+        name: "g-hash finds match inside longer word backward",
+        initial_text: "abc\nxabc abc\n",
+        keys: "j$g#",
+    },
+    OracleCase {
+        name: "n after g-star keeps partial matching",
+        initial_text: "abc abcdef\nabc\n",
+        keys: "g*n",
+    },
+    OracleCase {
+        name: "g-star records plain pattern in search history",
+        initial_text: "abc\nxyz\nabcdef\n",
+        keys: "g*/xyz<CR>/<Up><Up><CR>",
+    },
+    OracleCase {
+        name: "N after g-star goes back through partial match",
+        initial_text: "abc abcdef\nabc\n",
+        keys: "g*nN",
+    },
+    OracleCase {
+        name: "g-star from middle of word uses whole keyword",
+        initial_text: "abcdef abc\n",
+        keys: "$hlg*",
+    },
+    OracleCase {
+        name: "gn after g-star selects partial match",
+        initial_text: "abc abcdef\n",
+        keys: "g*gnd",
+    },
 ];
 
 // Known divergence, deliberately not an active case (it would fail CI):
