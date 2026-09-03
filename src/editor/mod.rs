@@ -9379,6 +9379,10 @@ impl Editor {
     /// Join count lines total, matching Vim's J count behavior.
     pub fn join_lines_count(&mut self, count: usize) {
         let joins = count.max(2).saturating_sub(1);
+        // One change for the whole count, so a single undo restores every
+        // line like Vim; each join opens its own group otherwise.
+        self.undo_stack
+            .begin_compound_group(self.cursor.line, self.cursor.col);
         for _ in 0..joins {
             let before = self.buffers[self.current_buffer_idx].len_lines();
             self.join_lines();
@@ -9386,6 +9390,8 @@ impl Editor {
                 break;
             }
         }
+        self.undo_stack
+            .end_compound_group(self.cursor.line, self.cursor.col);
     }
 
     /// Join current line with next line without inserting space (gJ command)
@@ -9425,6 +9431,8 @@ impl Editor {
     /// Join count lines total without inserting spaces, matching gJ with count.
     pub fn join_lines_no_space_count(&mut self, count: usize) {
         let joins = count.max(2).saturating_sub(1);
+        self.undo_stack
+            .begin_compound_group(self.cursor.line, self.cursor.col);
         for _ in 0..joins {
             let before = self.buffers[self.current_buffer_idx].len_lines();
             self.join_lines_no_space();
@@ -9432,6 +9440,8 @@ impl Editor {
                 break;
             }
         }
+        self.undo_stack
+            .end_compound_group(self.cursor.line, self.cursor.col);
     }
 
     // ============================================
@@ -10342,8 +10352,131 @@ impl Editor {
 
     /// Case transformation on visual selection
     pub fn case_visual(&mut self, op: CaseOperator) {
+        self.map_visual_selection_chars(|c| match op {
+            CaseOperator::Lowercase => c.to_lowercase().collect(),
+            CaseOperator::Uppercase => c.to_uppercase().collect(),
+            CaseOperator::ToggleCase => {
+                if c.is_lowercase() {
+                    c.to_uppercase().collect()
+                } else if c.is_uppercase() {
+                    c.to_lowercase().collect()
+                } else {
+                    c.to_string()
+                }
+            }
+        });
+    }
+
+    /// `{Visual}r{char}`: every selected character becomes `ch`.
+    pub fn replace_visual_selection(&mut self, ch: char) {
+        self.map_visual_selection_chars(|_| ch.to_string());
+    }
+
+    /// Apply `map` to every character of the visual selection, honoring the
+    /// mode: whole lines for V, the inclusive span for v, and only the
+    /// column block for Ctrl-V (lines too short for it are left alone).
+    /// One undo group, and the cursor ends on the selection start like
+    /// Vim's visual operators. Leaves visual mode itself, through the path
+    /// that keeps the cursor put and remembers the selection for `gv`.
+    fn map_visual_selection_chars(&mut self, map: impl Fn(char) -> String) {
         let (start_line, start_col, end_line, end_col) = self.get_visual_range();
-        self.transform_case(start_line, start_col, end_line, end_col, op);
+        let linewise = self.mode == Mode::VisualLine;
+        let block = self.mode == Mode::VisualBlock;
+        let buffer_idx = self.current_buffer_idx;
+        self.exit_visual_mode();
+
+        // Cursor first, so both the change and its undo land on the
+        // selection start like Vim.
+        self.cursor.line = start_line;
+        self.cursor.col = if linewise { 0 } else { start_col };
+        self.begin_change();
+        let mut changed = false;
+        for line_idx in start_line..=end_line {
+            let Some(line) = self.buffers[buffer_idx].line(line_idx) else {
+                continue;
+            };
+            let line_str: String = line.chars().collect();
+            let content_len = self.buffers[buffer_idx].line_len(line_idx);
+            if content_len == 0 {
+                continue;
+            }
+            let last = content_len - 1;
+            let (from, to) = if linewise {
+                (0, last)
+            } else if block {
+                (start_col, end_col.min(last))
+            } else {
+                let from = if line_idx == start_line { start_col } else { 0 };
+                let to = if line_idx == end_line {
+                    end_col.min(last)
+                } else {
+                    last
+                };
+                (from, to)
+            };
+            if from > to {
+                continue;
+            }
+            let new_line: String = line_str
+                .chars()
+                .enumerate()
+                .map(|(col, c)| {
+                    if col >= from && col <= to {
+                        map(c)
+                    } else {
+                        c.to_string()
+                    }
+                })
+                .collect();
+            if new_line != line_str {
+                self.undo_stack.record_change(Change::replace_line(
+                    line_idx,
+                    line_str,
+                    new_line.clone(),
+                ));
+                self.buffers[buffer_idx].replace_line(line_idx, &new_line);
+                changed = true;
+            }
+        }
+
+        self.undo_stack
+            .end_undo_group(self.cursor.line, self.cursor.col);
+        if changed {
+            self.buffers[buffer_idx].mark_modified();
+        }
+        self.clamp_cursor();
+    }
+
+    /// `{Visual}J` / `{Visual}gJ`: join the selected lines, at least two.
+    pub fn join_visual(&mut self, with_spaces: bool) {
+        let (start_line, _, end_line, _) = self.get_visual_range();
+        let count = (end_line - start_line + 1).max(2);
+        self.exit_visual_mode();
+        self.cursor.line = start_line;
+        if with_spaces {
+            self.join_lines_count(count);
+        } else {
+            self.join_lines_no_space_count(count);
+        }
+    }
+
+    /// `{Visual}=`: re-indent the selected lines, cursor on the first
+    /// non-blank of the first one.
+    pub fn auto_indent_visual(&mut self) {
+        let (start_line, _, end_line, _) = self.get_visual_range();
+        self.exit_visual_mode();
+        self.auto_indent_lines(start_line, end_line);
+        let buffer = &self.buffers[self.current_buffer_idx];
+        let first_non_blank = (0..buffer.line_len(start_line))
+            .find(|&col| {
+                buffer
+                    .char_at(start_line, col)
+                    .is_some_and(|ch| !ch.is_whitespace())
+            })
+            .unwrap_or(0);
+        self.cursor.line = start_line;
+        self.cursor.col = first_non_blank;
+        self.clamp_cursor();
     }
 
     // ============================================

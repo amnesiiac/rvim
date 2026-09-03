@@ -56,6 +56,8 @@ pub struct InputState {
     pub surround_add_line: bool,
     /// Pending visual surround (S waiting for char)
     pub pending_visual_surround: bool,
+    /// Pending visual replace (r waiting for the replacement char)
+    pub pending_visual_replace: bool,
     /// Pending comment toggle (gc waiting for motion or second c)
     pub pending_comment: bool,
     /// Pending case operator (gu, gU, g~ waiting for motion)
@@ -384,6 +386,7 @@ impl InputState {
             || self.surround_add_motion.is_some()
             || self.surround_add_line
             || self.pending_visual_surround
+            || self.pending_visual_replace
             || self.pending_comment
             || self.pending_case_operator.is_some()
             || self.pending_set_mark
@@ -412,6 +415,7 @@ impl InputState {
         self.surround_add_motion = None;
         self.surround_add_line = false;
         self.pending_visual_surround = false;
+        self.pending_visual_replace = false;
         self.pending_comment = false;
         self.pending_case_operator = None;
         self.pending_set_mark = false;

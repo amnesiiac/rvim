@@ -2,6 +2,7 @@
 pub(crate) enum KeybindMode {
     Normal,
     Insert,
+    Visual,
     Leader,
 }
 
@@ -325,6 +326,43 @@ const KEYBIND_COVERAGE: &[KeybindCoverage] = &[
         "Reselect last visual selection",
         "reselect last visual selection",
     ),
+    // Operators pressed inside visual mode.
+    visual_oracle("u", "Lowercase selection", "visual lowercase charwise"),
+    visual_oracle("U", "Uppercase selection", "visual uppercase linewise"),
+    visual_oracle("~", "Toggle case of selection", "visual toggle case block"),
+    visual_oracle("gu", "Lowercase selection", "visual g-lowercase charwise"),
+    visual_oracle("gU", "Uppercase selection", "visual g-uppercase block"),
+    visual_oracle(
+        "g~",
+        "Toggle case of selection",
+        "visual g-toggle case charwise",
+    ),
+    visual_oracle(
+        "r{char}",
+        "Replace every selected character",
+        "visual replace block skips short lines",
+    ),
+    visual_oracle(
+        "J",
+        "Join selected lines with spaces",
+        "visual join three lines",
+    ),
+    visual_oracle(
+        "gJ",
+        "Join selected lines without spaces",
+        "visual join without spaces keeps whitespace",
+    ),
+    // `=` follows Nevi's own indenter rather than Vim's C-indenting, so it
+    // is pinned natively instead of against the oracle.
+    KeybindCoverage {
+        mode: KeybindMode::Visual,
+        key: "=",
+        description: "Re-indent selected lines",
+        kind: CoverageKind::NeviRegression,
+        state: CoverageState::Protected {
+            test_id: "visual_equals_reindents_selection_like_double_equals",
+        },
+    },
     // Text-object batch: one entry per documented object family.
     vim_oracle("iw", "Inner/around word objects", "delete inner word"),
     vim_oracle("iW", "Inner/around WORD objects", "delete inner big word"),
@@ -600,6 +638,24 @@ const fn insert_oracle(
 ) -> KeybindCoverage {
     KeybindCoverage {
         mode: KeybindMode::Insert,
+        key,
+        description,
+        kind: CoverageKind::VimOracle,
+        state: CoverageState::Protected {
+            test_id: oracle_case,
+        },
+    }
+}
+
+/// Same as `vim_oracle`, for keys pressed inside visual mode, where `J`,
+/// `r`, and the case operators mean something different from normal mode.
+const fn visual_oracle(
+    key: &'static str,
+    description: &'static str,
+    oracle_case: &'static str,
+) -> KeybindCoverage {
+    KeybindCoverage {
+        mode: KeybindMode::Visual,
         key,
         description,
         kind: CoverageKind::VimOracle,

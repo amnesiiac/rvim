@@ -9182,9 +9182,32 @@ fn handle_visual_mode(editor: &mut Editor, key: KeyEvent) {
         return;
     }
 
-    // Handle gc for comment toggle (after g was pressed)
+    // r{char}: any other key cancels, like Vim.
+    if editor.input_state.pending_visual_replace {
+        editor.input_state.pending_visual_replace = false;
+        if let KeyCode::Char(c) = key.code {
+            editor.replace_visual_selection(c);
+        }
+        return;
+    }
+
+    // Handle g-prefixed keys (after g was pressed): gc, gu, gU, g~, gJ, gg
     if editor.input_state.pending_comment {
         editor.input_state.pending_comment = false;
+        let case_op = match key.code {
+            KeyCode::Char('u') => Some(crate::input::CaseOperator::Lowercase),
+            KeyCode::Char('U') => Some(crate::input::CaseOperator::Uppercase),
+            KeyCode::Char('~') => Some(crate::input::CaseOperator::ToggleCase),
+            _ => None,
+        };
+        if let Some(op) = case_op {
+            editor.case_visual(op);
+            return;
+        }
+        if matches!(key.code, KeyCode::Char('J')) {
+            editor.join_visual(false);
+            return;
+        }
         if matches!(key.code, KeyCode::Char('c')) {
             // gc in visual mode - toggle comments on selection
             let (start_line, _, end_line, _) = editor.get_visual_range();
@@ -9407,18 +9430,26 @@ fn handle_visual_mode(editor: &mut Editor, key: KeyEvent) {
             editor.enter_normal_mode();
         }
 
-        // Case transformation on selection
+        // Case transformation on selection. These operators leave visual
+        // mode themselves so the cursor lands where Vim puts it.
         (KeyModifiers::NONE, KeyCode::Char('u')) => {
             editor.case_visual(crate::input::CaseOperator::Lowercase);
-            editor.enter_normal_mode();
         }
         (KeyModifiers::SHIFT, KeyCode::Char('U')) => {
             editor.case_visual(crate::input::CaseOperator::Uppercase);
-            editor.enter_normal_mode();
         }
         (KeyModifiers::SHIFT, KeyCode::Char('~')) | (KeyModifiers::NONE, KeyCode::Char('~')) => {
             editor.case_visual(crate::input::CaseOperator::ToggleCase);
-            editor.enter_normal_mode();
+        }
+
+        (KeyModifiers::NONE, KeyCode::Char('r')) => {
+            editor.input_state.pending_visual_replace = true;
+        }
+        (KeyModifiers::SHIFT, KeyCode::Char('J')) => {
+            editor.join_visual(true);
+        }
+        (_, KeyCode::Char('=')) => {
+            editor.auto_indent_visual();
         }
 
         _ => {}
@@ -15513,6 +15544,33 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn visual_equals_reindents_selection_like_double_equals() {
+        // `=` on a selection is Nevi's own indenter, the same one `==` uses,
+        // so the check is consistency with `==` rather than a Vim snapshot.
+        let content = "fn main() {\nlet x = 1;\n    let y = 2;\n}\n";
+        let mut reference = Editor::default();
+        reference.replace_buffer_content(content);
+        reference.auto_indent_lines(1, 2);
+
+        let mut editor = Editor::default();
+        editor.replace_buffer_content(content);
+        editor.cursor.line = 1;
+        handle_key(&mut editor, shift_key('V'));
+        handle_key(&mut editor, key('j'));
+        handle_key(&mut editor, key('='));
+
+        assert_eq!(editor.mode, Mode::Normal);
+        assert_eq!(editor.buffer().content(), reference.buffer().content());
+        assert_eq!(editor.cursor.line, 1);
+        let indent_width = reference
+            .buffer()
+            .line(1)
+            .map(|line| line.chars().take_while(|ch| *ch == ' ').count())
+            .unwrap_or(0);
+        assert_eq!(editor.cursor.col, indent_width);
     }
 
     #[test]

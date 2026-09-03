@@ -597,6 +597,17 @@ pub(super) const EDITING_CASES: &[OracleCase] = &[
         initial_text: "a\nb\nc\nd\n",
         keys: "3J",
     },
+    // A counted join is one change: a single undo restores every line.
+    OracleCase {
+        name: "counted join then undo",
+        initial_text: "one\ntwo\nthree\nfour\n",
+        keys: "3Ju",
+    },
+    OracleCase {
+        name: "counted join without space then undo",
+        initial_text: "one\ntwo\nthree\nfour\n",
+        keys: "3gJu",
+    },
     OracleCase {
         name: "join without added space",
         initial_text: "foo \nbar\n",

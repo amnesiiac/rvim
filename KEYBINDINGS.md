@@ -584,6 +584,10 @@ Moving the cursor cancels that restoration and counted replay history.
 | `p` | Paste over selection |
 | `~` | Toggle case of selection |
 | `u` / `U` | Lowercase / uppercase selection |
+| `gu` / `gU` / `g~` | Lowercase / uppercase / toggle case of selection |
+| `r{char}` | Replace every selected character with {char} |
+| `J` / `gJ` | Join the selected lines with / without spaces, at least two |
+| `=` | Re-indent the selected lines |
 | `o` | Swap to other end of selection |
 | `O` | Swap to other corner in visual block mode |
 | `I` | Insert before the visual block on each selected line |
