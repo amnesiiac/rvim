@@ -1,9 +1,10 @@
 use grep_regex::RegexMatcherBuilder;
 use grep_searcher::{SearcherBuilder, sinks::UTF8};
-use ignore::WalkBuilder;
+use ignore::{WalkBuilder, WalkState};
 use std::path::Path;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::mpsc;
 
 use super::FinderItem;
 
@@ -150,7 +151,9 @@ impl GrepSearcher {
     }
 
     /// Search for a pattern and emit result batches while walking files.
-    /// Returning false from on_batch stops the search early.
+    /// Files are walked and searched by parallel workers (ripgrep style);
+    /// results stream unordered across files. Returning false from on_batch
+    /// stops the search early.
     pub fn search_stream<F>(&self, root: &Path, pattern: &str, batch_size: usize, mut on_batch: F)
     where
         F: FnMut(Vec<FinderItem>) -> bool,
@@ -171,16 +174,9 @@ impl GrepSearcher {
             Err(_) => return,
         };
 
-        // Build searcher with line numbers
-        let mut searcher = SearcherBuilder::new().line_number(true).build();
-
-        let batch_size = batch_size.max(1);
-        let mut batch = Vec::new();
-        let result_count = Arc::new(AtomicUsize::new(0));
-        let mut stop_requested = false;
-
-        // Walk directory respecting .gitignore. filter_entry prevents descending
-        // into custom-ignored directories before we inspect their files.
+        // Walk directory respecting .gitignore. filter_entry prevents
+        // descending into custom-ignored directories, so their files never
+        // reach the workers.
         let root_buf = root.to_path_buf();
         let ignore_patterns = self.ignore_patterns.clone();
         let mut builder = WalkBuilder::new(root);
@@ -193,99 +189,118 @@ impl GrepSearcher {
             .filter_entry(move |entry| {
                 !Self::should_ignore_path(&root_buf, entry.path(), &ignore_patterns)
             });
-        let walker = builder.build();
+        let walker = builder.build_parallel();
 
-        for entry in walker.flatten() {
-            // Check if we've hit the max results
-            if result_count.load(Ordering::Relaxed) >= self.max_results {
-                break;
-            }
+        let (tx, rx) = mpsc::channel::<FinderItem>();
+        let result_count = Arc::new(AtomicUsize::new(0));
+        let stop_flag = Arc::new(AtomicBool::new(false));
+        let max_results = self.max_results;
+        let walk_root = root.to_path_buf();
+        let walk_pattern = pattern.to_string();
 
-            // Skip directories
-            if !entry.file_type().map(|ft| ft.is_file()).unwrap_or(false) {
-                continue;
-            }
-
-            let path = entry.path();
-
-            // Skip ignored paths (build directories, etc.)
-            if Self::should_ignore_path(root, path, &self.ignore_patterns) {
-                continue;
-            }
-
-            // Skip binary files by extension
-            if self.is_binary_extension(path) {
-                continue;
-            }
-
-            // Use grep-searcher for fast searching
-            let rel_path = path
-                .strip_prefix(root)
-                .unwrap_or(path)
-                .to_string_lossy()
-                .to_string();
-
-            let path_buf = path.to_path_buf();
-            let max_results = self.max_results;
-            let count_ref = Arc::clone(&result_count);
-
-            let search_result = searcher.search_path(
-                &matcher,
-                path,
-                UTF8(|line_num, line| {
-                    // Check limit
-                    if count_ref.load(Ordering::Relaxed) >= max_results {
-                        return Ok(false); // Stop searching
+        // run() blocks until the walk finishes, so it gets its own thread
+        // while this one batches results in arrival order.
+        let walk_count = Arc::clone(&result_count);
+        let walk_stop = Arc::clone(&stop_flag);
+        let walk_handle = std::thread::spawn(move || {
+            walker.run(|| {
+                // One searcher per worker thread; the matcher is shared.
+                let mut searcher = SearcherBuilder::new().line_number(true).build();
+                let matcher = matcher.clone();
+                let tx = tx.clone();
+                let count = Arc::clone(&walk_count);
+                let stop = Arc::clone(&walk_stop);
+                let root = walk_root.clone();
+                let pattern = walk_pattern.clone();
+                Box::new(move |entry| {
+                    if stop.load(Ordering::Relaxed) || count.load(Ordering::Relaxed) >= max_results
+                    {
+                        return WalkState::Quit;
                     }
-
-                    // Truncate long lines (safely handle UTF-8)
-                    let line_trimmed = line.trim();
-                    let line_display = if line_trimmed.chars().count() > 100 {
-                        let truncated: String = line_trimmed.chars().take(100).collect();
-                        format!("{}...", truncated)
-                    } else {
-                        line_trimmed.to_string()
+                    let Ok(entry) = entry else {
+                        return WalkState::Continue;
                     };
-
-                    let display = format!("{}:{}: {}", rel_path, line_num, line_display);
-
-                    let match_col = find_case_insensitive_char_index(line, pattern);
-                    let item = FinderItem::new(display, path_buf.clone())
-                        .with_line(line_num as usize)
-                        .with_col(match_col);
-
-                    batch.push(item);
-                    count_ref.fetch_add(1, Ordering::Relaxed);
-
-                    if batch.len() >= batch_size {
-                        let items = std::mem::take(&mut batch);
-                        if !on_batch(items) {
-                            stop_requested = true;
-                            return Ok(false);
-                        }
+                    if !entry.file_type().map(|ft| ft.is_file()).unwrap_or(false) {
+                        return WalkState::Continue;
+                    }
+                    let path = entry.path();
+                    if Self::is_binary_extension(path) {
+                        return WalkState::Continue;
                     }
 
-                    Ok(true)
-                }),
-            );
+                    let rel_path = path
+                        .strip_prefix(&root)
+                        .unwrap_or(path)
+                        .to_string_lossy()
+                        .to_string();
+                    let path_buf = path.to_path_buf();
 
-            // Ignore search errors (binary files, permission denied, etc.), but
-            // stop immediately when the receiver asks us to quit.
-            if stop_requested {
-                break;
+                    // Ignore per-file errors (binary content, permissions).
+                    let _ = searcher.search_path(
+                        &matcher,
+                        path,
+                        UTF8(|line_num, line| {
+                            if stop.load(Ordering::Relaxed)
+                                || count.fetch_add(1, Ordering::Relaxed) >= max_results
+                            {
+                                return Ok(false);
+                            }
+
+                            // Truncate long lines (safely handle UTF-8)
+                            let line_trimmed = line.trim();
+                            let line_display = if line_trimmed.chars().count() > 100 {
+                                let truncated: String = line_trimmed.chars().take(100).collect();
+                                format!("{}...", truncated)
+                            } else {
+                                line_trimmed.to_string()
+                            };
+
+                            let display = format!("{}:{}: {}", rel_path, line_num, line_display);
+                            let match_col = find_case_insensitive_char_index(line, &pattern);
+                            let item = FinderItem::new(display, path_buf.clone())
+                                .with_line(line_num as usize)
+                                .with_col(match_col);
+
+                            Ok(tx.send(item).is_ok())
+                        }),
+                    );
+
+                    WalkState::Continue
+                })
+            });
+            // run() returning drops every worker's tx clone, ending the
+            // batching loop below.
+        });
+
+        let batch_size = batch_size.max(1);
+        let mut batch = Vec::new();
+        let mut emitted = 0usize;
+        let mut stopped = false;
+        while let Ok(item) = rx.recv() {
+            if emitted >= max_results {
+                continue; // drain so workers can quit
             }
-            if search_result.is_err() {
-                continue;
+            batch.push(item);
+            emitted += 1;
+            if batch.len() >= batch_size {
+                if !on_batch(std::mem::take(&mut batch)) {
+                    stop_flag.store(true, Ordering::Relaxed);
+                    stopped = true;
+                    break;
+                }
             }
         }
-
-        if !batch.is_empty() && !stop_requested {
+        if !batch.is_empty() && !stopped {
             let _ = on_batch(batch);
         }
+        // Dropping the receiver makes any pending worker send fail, which
+        // stops their file scans; then wait for the walk to wind down.
+        drop(rx);
+        let _ = walk_handle.join();
     }
 
     /// Check if file has a binary extension
-    fn is_binary_extension(&self, path: &Path) -> bool {
+    fn is_binary_extension(path: &Path) -> bool {
         let binary_extensions = [
             "png", "jpg", "jpeg", "gif", "bmp", "ico", "svg", "pdf", "doc", "docx", "xls", "xlsx",
             "ppt", "pptx", "zip", "tar", "gz", "bz2", "xz", "7z", "rar", "exe", "dll", "so",
@@ -308,6 +323,17 @@ impl Default for GrepSearcher {
 
 fn find_case_insensitive_char_index(line: &str, pattern: &str) -> usize {
     let pattern_lower = pattern.to_lowercase();
+
+    // Lowercase the line once and substring-search it. Falls back to the
+    // per-position scan when lowercasing changes the char count (rare
+    // expansions like 'İ'), where lowered positions no longer map 1:1.
+    let line_lower = line.to_lowercase();
+    if line_lower.chars().count() == line.chars().count() {
+        return line_lower
+            .find(&pattern_lower)
+            .map(|byte_pos| line_lower[..byte_pos].chars().count())
+            .unwrap_or(0);
+    }
 
     for (char_idx, (byte_idx, _)) in line.char_indices().enumerate() {
         if line[byte_idx..].to_lowercase().starts_with(&pattern_lower) {
@@ -388,6 +414,49 @@ mod tests {
 
         assert_eq!(total, 5);
         assert_eq!(batch_lengths, vec![2, 2, 1]);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn parallel_search_finds_matches_across_many_files() {
+        let root = unique_temp_dir("grep_parallel_files");
+        for dir in 0..4 {
+            fs::create_dir_all(root.join(format!("mod_{dir}"))).unwrap();
+            for file in 0..5 {
+                fs::write(
+                    root.join(format!("mod_{dir}/file_{file}.rs")),
+                    format!("fn f() {{}}\nlet needle_{dir}_{file} = 1;\n"),
+                )
+                .unwrap();
+            }
+        }
+
+        let searcher = GrepSearcher::new();
+        let results = searcher.search(&root, "needle");
+
+        assert_eq!(results.len(), 20, "one match per file across all workers");
+        assert!(results.iter().all(|item| item.line == Some(2)));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn parallel_search_respects_max_results_across_files() {
+        let root = unique_temp_dir("grep_parallel_cap");
+        fs::create_dir_all(&root).unwrap();
+        for file in 0..30 {
+            fs::write(
+                root.join(format!("file_{file}.txt")),
+                "needle one\nneedle two\n",
+            )
+            .unwrap();
+        }
+
+        let searcher = GrepSearcher::new().with_max_results(10);
+        let results = searcher.search(&root, "needle");
+
+        assert_eq!(results.len(), 10);
 
         let _ = fs::remove_dir_all(root);
     }

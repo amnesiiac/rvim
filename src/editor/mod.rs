@@ -1,9 +1,11 @@
 mod buffer;
 mod cursor;
+mod increment;
 mod macros;
 mod marks;
 mod register;
 mod replace;
+mod search_pattern;
 mod undo;
 
 pub use buffer::Buffer;
@@ -14,6 +16,7 @@ pub use register::{RegisterContent, Registers};
 pub use undo::{Change, UndoEntry, UndoStack};
 
 use replace::ReplaceSession;
+use search_pattern::SearchPattern;
 
 use crate::commands::CommandLine;
 use crate::config::{KeymapLookup, LeaderAction, LeaderHint, Settings};
@@ -353,6 +356,20 @@ pub struct SearchState {
     /// `[current/total]` counter for the statusline, recomputed on search
     /// jumps (/, ?, n, N, *, #) — never counted during render.
     pub match_stats: Option<(usize, usize)>,
+    /// Cursor and view when the search prompt opened. Vim's incsearch model:
+    /// every keystroke evaluates the whole pattern from here (not from
+    /// wherever the previous keystroke moved the cursor), and cancelling or
+    /// failing the search restores this position.
+    pub origin: Option<SearchOrigin>,
+}
+
+/// Position saved when a `/` or `?` prompt opens, restored on cancel/failure.
+#[derive(Debug, Clone, Copy)]
+pub struct SearchOrigin {
+    pub line: usize,
+    pub col: usize,
+    pub viewport_offset: usize,
+    pub h_offset: usize,
 }
 
 impl SearchState {
@@ -364,6 +381,7 @@ impl SearchState {
         self.saved_input = None;
         self.pending_register = false;
         self.match_stats = None;
+        self.origin = None;
     }
 
     /// Start a new search
@@ -375,6 +393,7 @@ impl SearchState {
         self.saved_input = None;
         self.pending_register = false;
         self.match_stats = None;
+        self.origin = None;
     }
 
     /// Insert a character at cursor (cursor is character index, not byte index)
@@ -537,6 +556,9 @@ impl SearchState {
 
     /// Execute search and save pattern
     pub fn execute(&mut self) -> Option<String> {
+        // n/N follow the direction of the latest `/` or `?`, even when it
+        // repeated the previous pattern with an empty input (Vim behavior).
+        self.last_direction = self.direction;
         if self.input.is_empty() {
             // Use last pattern if input is empty
             self.last_pattern.clone()
@@ -544,7 +566,6 @@ impl SearchState {
             let pattern = self.input.clone();
             self.record_history(pattern.clone());
             self.last_pattern = Some(pattern.clone());
-            self.last_direction = self.direction;
             Some(pattern)
         }
     }
@@ -982,6 +1003,13 @@ impl CompletionState {
 }
 
 /// Main editor state
+/// Result of a background full-repo git status scan.
+struct GitStatusScan {
+    generation: u64,
+    statuses: HashMap<std::path::PathBuf, crate::git::GitFileStatus>,
+    scan_duration: Duration,
+}
+
 pub struct Editor {
     /// All open buffers
     buffers: Vec<Buffer>,
@@ -1128,6 +1156,10 @@ pub struct Editor {
     pub markdown_preview: Option<crate::markdown_preview::MarkdownPreviewState>,
     /// Recent in-memory performance timing events.
     pub flight_recorder: crate::perf::FlightRecorder,
+    /// Receiver for the in-flight background git status scan
+    git_status_receiver: Option<std::sync::mpsc::Receiver<GitStatusScan>>,
+    /// Generation guard so stale background scans are discarded on arrival
+    git_status_generation: u64,
     /// Dirty regions recorded for future partial-rendering passes.
     pub render_damage: crate::render_damage::RenderDamage,
     /// Last project-wide replace preview, pending explicit apply.
@@ -1159,6 +1191,9 @@ pub struct Editor {
     replace_session: ReplaceSession,
     /// Insert mode is waiting for a register name after `<C-r>`.
     pub pending_insert_register: bool,
+    /// Insert mode is waiting for the next key to insert literally after
+    /// `<C-v>` / `<C-q>` (e.g. `<C-v><C-y>` inserts 0x19).
+    pub pending_insert_literal: bool,
     /// Expression register input is active after `"=` or `<C-r>=`.
     pub pending_expression_register: Option<ExpressionRegisterTarget>,
     /// Expression being typed for the expression register.
@@ -1647,6 +1682,8 @@ impl Editor {
             theme_picker: None,
             markdown_preview: None,
             flight_recorder: crate::perf::FlightRecorder::default(),
+            git_status_receiver: None,
+            git_status_generation: 0,
             render_damage: crate::render_damage::RenderDamage::full(),
             project_replace_preview: None,
             labeled_jump: None,
@@ -1662,6 +1699,7 @@ impl Editor {
             insert_session_open_line_indent: None,
             replace_session: ReplaceSession::default(),
             pending_insert_register: false,
+            pending_insert_literal: false,
             pending_expression_register: None,
             expression_register_input: String::new(),
             expression_register_value: None,
@@ -3113,21 +3151,77 @@ impl Editor {
         self.refresh_explorer_git_statuses();
     }
 
-    /// Refresh git-backed explorer markers.
+    /// Refresh git-backed explorer markers. The full-repo status scan runs on
+    /// a background thread (54-141ms on large repos, and it used to block
+    /// startup, every save, and opening the explorer); poll_git_state applies
+    /// the result when it lands, so markers pop in a frame or two later.
     pub fn refresh_explorer_git_statuses(&mut self) {
-        if let Some(repo) = &self.git_repo {
-            let mut statuses = repo.file_statuses();
-            for buffer in &self.buffers {
-                if buffer.dirty {
-                    if let Some(path) = &buffer.path {
-                        statuses.insert(path.clone(), crate::git::GitFileStatus::Modified);
-                    }
+        if self.git_repo.is_none() {
+            self.explorer.clear_git_statuses();
+            return;
+        }
+        let Some(root) = self.project_root.clone() else {
+            self.explorer.clear_git_statuses();
+            return;
+        };
+
+        // Stale scans (older generation, or from a root we already left) are
+        // discarded on arrival. Rapid triggers just supersede each other.
+        self.git_status_generation = self.git_status_generation.wrapping_add(1);
+        let generation = self.git_status_generation;
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.git_status_receiver = Some(rx);
+
+        std::thread::spawn(move || {
+            // git2 repositories are not shared across threads; opening by
+            // path is cheap next to the scan itself.
+            let Some(repo) = crate::git::GitRepo::open(&root) else {
+                return;
+            };
+            let started = Instant::now();
+            let statuses = repo.file_statuses();
+            let _ = tx.send(GitStatusScan {
+                generation,
+                statuses,
+                scan_duration: started.elapsed(),
+            });
+        });
+    }
+
+    /// Apply a finished background status scan, if one arrived. Returns true
+    /// when explorer markers changed and a redraw is needed.
+    pub fn poll_git_state(&mut self) -> bool {
+        let Some(rx) = self.git_status_receiver.as_ref() else {
+            return false;
+        };
+        let scan = match rx.try_recv() {
+            Ok(scan) => scan,
+            Err(std::sync::mpsc::TryRecvError::Empty) => return false,
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                self.git_status_receiver = None;
+                return false;
+            }
+        };
+        self.git_status_receiver = None;
+        if scan.generation != self.git_status_generation {
+            return false;
+        }
+
+        self.flight_recorder
+            .record("git_file_statuses", scan.scan_duration);
+
+        // The dirty-buffer overlay uses the buffers as they are NOW, not as
+        // they were when the scan started.
+        let mut statuses = scan.statuses;
+        for buffer in &self.buffers {
+            if buffer.dirty {
+                if let Some(path) = &buffer.path {
+                    statuses.insert(path.clone(), crate::git::GitFileStatus::Modified);
                 }
             }
-            self.explorer.rebuild_git_statuses_from(statuses);
-        } else {
-            self.explorer.clear_git_statuses();
         }
+        self.explorer.rebuild_git_statuses_from(statuses);
+        true
     }
 
     /// Get reference to the git repository (if available)
@@ -3321,6 +3415,31 @@ impl Editor {
 
     fn remember_current_file_as_alternate(&mut self) {
         self.alternate_file_path = self.buffers[self.current_buffer_idx].path.clone();
+    }
+
+    /// `Ctrl-^`: edit the alternate file, the one this window showed before
+    /// the current buffer (`:e #`). A closed alternate is read back from
+    /// disk, as Vim re-edits an unlisted buffer.
+    pub fn switch_to_alternate_buffer(&mut self) {
+        let Some(path) = self.alternate_file_path.clone() else {
+            self.set_status("No alternate file");
+            return;
+        };
+        let open_idx = self
+            .buffers
+            .iter()
+            .position(|buffer| buffer.path.as_ref() == Some(&path));
+        match open_idx {
+            Some(idx) if idx != self.current_buffer_idx => {
+                self.switch_to_buffer(idx);
+            }
+            Some(_) => self.set_status("No alternate file"),
+            None => {
+                if let Err(err) = self.open_file(path) {
+                    self.set_status(format!("Error: {}", err));
+                }
+            }
+        }
     }
 
     // ============================================
@@ -4034,6 +4153,9 @@ impl Editor {
                 pane.h_offset = 0;
             }
         } else {
+            // The closed file becomes the alternate, as in Vim, so Ctrl-^
+            // can bring it straight back.
+            self.remember_current_file_as_alternate();
             // Remove the current buffer
             self.buffers.remove(removed_idx);
             self.undo_stacks.remove(removed_idx);
@@ -5397,9 +5519,10 @@ impl Editor {
             .prefer_current_cursor_after(self.cursor.line, self.cursor.col);
     }
 
-    /// Enter insert mode at end of line with Vim's counted-insert semantics.
-    pub fn enter_insert_mode_end_counted(&mut self, count: usize) {
-        self.enter_insert_mode_end();
+    /// Vim's counted insert: `3ix<Esc>` types the session's text three
+    /// times. Shared by every insert entry point (i, a, I, A, o, O) so none
+    /// of them can drop the count; a no-op when entry was refused.
+    pub fn set_insert_repeat_count(&mut self, count: usize) {
         if self.mode == Mode::Insert {
             self.insert_session_repeat_count = count.max(1);
         }
@@ -5433,14 +5556,6 @@ impl Editor {
         self.begin_change();
         self.undo_stack
             .prefer_current_cursor_after(self.cursor.line, self.cursor.col);
-    }
-
-    /// Enter insert mode at first non-blank with Vim's counted-insert semantics.
-    pub fn enter_insert_mode_start_counted(&mut self, count: usize) {
-        self.enter_insert_mode_start();
-        if self.mode == Mode::Insert {
-            self.insert_session_repeat_count = count.max(1);
-        }
     }
 
     /// Temporarily leave insert mode so the next normal command can run.
@@ -6313,14 +6428,6 @@ impl Editor {
         self.scroll_to_cursor();
     }
 
-    /// Open a line below and repeat the completed insertion `count` times.
-    pub fn open_line_below_counted(&mut self, count: usize) {
-        self.open_line_below();
-        if self.mode == Mode::Insert {
-            self.insert_session_repeat_count = count.max(1);
-        }
-    }
-
     /// Open a new line above and enter insert mode
     pub fn open_line_above(&mut self) {
         let redo_cursor = (self.cursor.line, self.cursor.col);
@@ -6349,14 +6456,6 @@ impl Editor {
         self.insert_session_open_line_indent = Some(indent);
         self.record_inserted_text(&insert_text);
         self.scroll_to_cursor();
-    }
-
-    /// Open a line above and repeat the completed insertion `count` times.
-    pub fn open_line_above_counted(&mut self, count: usize) {
-        self.open_line_above();
-        if self.mode == Mode::Insert {
-            self.insert_session_repeat_count = count.max(1);
-        }
     }
 
     /// Save the current buffer
@@ -6822,6 +6921,27 @@ impl Editor {
             .collect()
     }
 
+    /// Vim's last-window rule (`check_changed_any`): exiting needs every
+    /// buffer accounted for. When another buffer still has unsaved changes,
+    /// drop the current one (the caller has saved it or chosen to discard
+    /// it) and show the first modified buffer instead; returns its name.
+    /// None means nothing else is modified and exiting is fine.
+    pub fn show_first_other_modified_buffer(&mut self) -> Option<String> {
+        let current = self.current_buffer_idx;
+        let another_is_modified = self
+            .buffers
+            .iter()
+            .enumerate()
+            .any(|(idx, buffer)| idx != current && buffer.dirty);
+        if !another_is_modified {
+            return None;
+        }
+        self.close_current_buffer();
+        let idx = self.buffers.iter().position(|buffer| buffer.dirty)?;
+        self.switch_to_buffer(idx);
+        Some(self.buffers[idx].display_name())
+    }
+
     /// Undo the last change
     pub fn undo(&mut self) {
         self.undo_stack
@@ -6886,6 +7006,7 @@ impl Editor {
     pub fn enter_search_forward(&mut self) {
         self.mode = Mode::Search;
         self.search.start(SearchDirection::Forward);
+        self.record_search_origin();
         self.render_damage.mark_full();
     }
 
@@ -6893,12 +7014,34 @@ impl Editor {
     pub fn enter_search_backward(&mut self) {
         self.mode = Mode::Search;
         self.search.start(SearchDirection::Backward);
+        self.record_search_origin();
         self.render_damage.mark_full();
     }
 
-    /// Exit search mode
+    fn record_search_origin(&mut self) {
+        self.search.origin = Some(SearchOrigin {
+            line: self.cursor.line,
+            col: self.cursor.col,
+            viewport_offset: self.viewport_offset,
+            h_offset: self.h_offset,
+        });
+    }
+
+    /// Put the cursor and view back where the search prompt opened.
+    fn restore_search_origin(&mut self) {
+        if let Some(origin) = self.search.origin {
+            self.cursor.line = origin.line;
+            self.cursor.col = origin.col;
+            self.viewport_offset = origin.viewport_offset;
+            self.h_offset = origin.h_offset;
+        }
+    }
+
+    /// Exit search mode without executing (Esc / Ctrl+c), restoring the
+    /// position the prompt opened from like Vim's incsearch cancel.
     pub fn exit_search_mode(&mut self) {
         self.mode = Mode::Normal;
+        self.restore_search_origin();
         self.search.clear();
         self.search_matches.clear();
         self.render_damage.mark_full();
@@ -6920,6 +7063,9 @@ impl Editor {
     /// is limited to visible rows so rendering stays bounded.
     pub fn update_incremental_search(&mut self) {
         let pattern = self.search.input.clone();
+        // Evaluate the whole pattern from the origin every keystroke; when
+        // it stops matching (or is emptied), the view snaps back there.
+        self.restore_search_origin();
         if pattern.is_empty() {
             self.search_matches.clear();
             self.render_damage.mark_full();
@@ -6943,9 +7089,11 @@ impl Editor {
         let direction = self.search.direction;
         if let Some(pattern) = self.search.execute() {
             self.mode = Mode::Normal;
-            if self.cursor_starts_search_match(&pattern)
-                || self.do_search(&pattern, direction, true)
-            {
+            // The final search runs from the origin, like the incremental
+            // preview: the match the user saw is the match they get, and a
+            // failed pattern leaves the cursor where the prompt opened.
+            self.restore_search_origin();
+            if self.do_search(&pattern, direction, true) {
                 self.refresh_visible_search_matches(&pattern);
                 self.update_search_match_stats(&pattern);
             } else {
@@ -6957,40 +7105,38 @@ impl Editor {
             self.mode = Mode::Normal;
             self.set_status("No previous search pattern");
         }
+        self.search.origin = None;
     }
 
     /// Search for next occurrence (n)
-    pub fn search_next(&mut self) {
-        self.render_damage.mark_full();
-        if let Some(pattern) = self.search.last_pattern.clone() {
-            // Record jump before searching (search is a jump motion)
-            self.record_jump();
-            let direction = self.search.last_direction;
-            if self.do_search(&pattern, direction, true) {
-                self.refresh_visible_search_matches(&pattern);
-                self.update_search_match_stats(&pattern);
-            } else {
-                self.search_matches.clear();
-                self.search.match_stats = None;
-                self.set_status(format!("Pattern not found: {}", pattern));
-            }
-        } else {
-            self.set_status("No previous search pattern");
-        }
+    pub fn search_next(&mut self, count: usize) {
+        let direction = self.search.last_direction;
+        self.repeat_search(direction, count);
     }
 
     /// Search for previous occurrence (N)
-    pub fn search_prev(&mut self) {
+    pub fn search_prev(&mut self, count: usize) {
+        let direction = match self.search.last_direction {
+            SearchDirection::Forward => SearchDirection::Backward,
+            SearchDirection::Backward => SearchDirection::Forward,
+        };
+        self.repeat_search(direction, count);
+    }
+
+    /// Shared n/N body: one recorded jump, then `count` search hops.
+    fn repeat_search(&mut self, direction: SearchDirection, count: usize) {
         self.render_damage.mark_full();
         if let Some(pattern) = self.search.last_pattern.clone() {
             // Record jump before searching (search is a jump motion)
             self.record_jump();
-            // Reverse the direction
-            let direction = match self.search.last_direction {
-                SearchDirection::Forward => SearchDirection::Backward,
-                SearchDirection::Backward => SearchDirection::Forward,
-            };
-            if self.do_search(&pattern, direction, true) {
+            let mut found = true;
+            for _ in 0..count.max(1) {
+                if !self.do_search(&pattern, direction, true) {
+                    found = false;
+                    break;
+                }
+            }
+            if found {
                 self.refresh_visible_search_matches(&pattern);
                 self.update_search_match_stats(&pattern);
             } else {
@@ -7008,6 +7154,7 @@ impl Editor {
     /// skipped in large-file mode so search stays a single buffer pass there.
     fn update_search_match_stats(&mut self, pattern: &str) {
         self.search.match_stats = None;
+        let pattern = SearchPattern::parse(pattern);
         if pattern.is_empty() || self.current_buffer_large_file_mode_active() {
             return;
         }
@@ -7021,8 +7168,7 @@ impl Editor {
             };
             let line_str: String = line.chars().collect();
             let mut search_from = 0;
-            while let Some(byte_pos) = line_str[search_from..].find(pattern) {
-                let match_byte_start = search_from + byte_pos;
+            while let Some(match_byte_start) = pattern.find(&line_str, search_from) {
                 total += 1;
                 // Byte→char conversion only matters on the cursor's line.
                 if line_idx == self.cursor.line
@@ -7030,7 +7176,7 @@ impl Editor {
                 {
                     current = Some(total);
                 }
-                search_from = match_byte_start + pattern.len();
+                search_from = match_byte_start + pattern.text.len();
             }
         }
 
@@ -7046,6 +7192,7 @@ impl Editor {
         self.search_matches.clear();
         self.render_damage.mark_full();
 
+        let pattern = SearchPattern::parse(pattern);
         if pattern.is_empty() {
             return;
         }
@@ -7055,7 +7202,7 @@ impl Editor {
             return;
         }
 
-        let pattern_len = pattern.chars().count();
+        let pattern_len = pattern.text.chars().count();
 
         // Find all matches in the buffer
         for line_idx in 0..total_lines {
@@ -7065,9 +7212,8 @@ impl Editor {
                 // Find all occurrences in this line
                 let mut search_from = 0;
                 while search_from < line_str.len() {
-                    if let Some(byte_pos) = line_str[search_from..].find(pattern) {
-                        let match_byte_start = search_from + byte_pos;
-                        let match_byte_end = match_byte_start + pattern.len();
+                    if let Some(match_byte_start) = pattern.find(&line_str, search_from) {
+                        let match_byte_end = match_byte_start + pattern.text.len();
 
                         // Convert byte positions to char positions
                         let start_col = Self::byte_to_char_idx(&line_str, match_byte_start);
@@ -7089,6 +7235,7 @@ impl Editor {
         self.search_matches.clear();
         self.render_damage.mark_full();
 
+        let pattern = SearchPattern::parse(pattern);
         if pattern.is_empty() {
             return;
         }
@@ -7102,7 +7249,7 @@ impl Editor {
         let end_line = viewport_offset
             .saturating_add(visible_rows)
             .min(total_lines);
-        let pattern_len = pattern.chars().count();
+        let pattern_len = pattern.text.chars().count();
 
         'lines: for line_idx in viewport_offset..end_line {
             if let Some(line) = self.buffers[self.current_buffer_idx].line(line_idx) {
@@ -7110,9 +7257,8 @@ impl Editor {
                 let mut search_from = 0;
 
                 while search_from < line_str.len() {
-                    if let Some(byte_pos) = line_str[search_from..].find(pattern) {
-                        let match_byte_start = search_from + byte_pos;
-                        let match_byte_end = match_byte_start + pattern.len();
+                    if let Some(match_byte_start) = pattern.find(&line_str, search_from) {
+                        let match_byte_end = match_byte_start + pattern.text.len();
                         let start_col = Self::byte_to_char_idx(&line_str, match_byte_start);
                         let end_col = start_col + pattern_len;
 
@@ -7140,68 +7286,51 @@ impl Editor {
         }
     }
 
-    fn cursor_starts_search_match(&self, pattern: &str) -> bool {
-        if pattern.is_empty() {
-            return false;
-        }
-
-        let Some(line) = self.buffers[self.current_buffer_idx].line(self.cursor.line) else {
-            return false;
-        };
-
-        let pattern_len = pattern.chars().count();
-        let line_len = line.len_chars();
-        if self.cursor.col.saturating_add(pattern_len) > line_len {
-            return false;
-        }
-
-        let mut line_chars = line.slice(self.cursor.col..line_len).chars();
-        for expected in pattern.chars() {
-            if line_chars.next() != Some(expected) {
-                return false;
-            }
-        }
-
-        true
-    }
-
     /// Search for word under cursor forward (*)
     pub fn search_word_forward(&mut self) {
-        self.render_damage.mark_full();
-        if let Some(word) = self.get_word_under_cursor() {
-            // Set as search pattern
-            self.search.last_pattern = Some(word.clone());
-            self.search.last_direction = SearchDirection::Forward;
-            if self.do_search(&word, SearchDirection::Forward, true) {
-                self.refresh_visible_search_matches(&word);
-                self.update_search_match_stats(&word);
-            } else {
-                self.search_matches.clear();
-                self.search.match_stats = None;
-                self.set_status(format!("Pattern not found: {}", word));
-            }
-        } else {
-            self.set_status("No word under cursor");
-        }
+        self.search_word_under_cursor(SearchDirection::Forward, true);
     }
 
     /// Search for word under cursor backward (#)
     pub fn search_word_backward(&mut self) {
+        self.search_word_under_cursor(SearchDirection::Backward, true);
+    }
+
+    /// g*: like `*` but the match may sit inside a longer word.
+    pub fn search_word_forward_anywhere(&mut self) {
+        self.search_word_under_cursor(SearchDirection::Forward, false);
+    }
+
+    /// g#: like `#` but the match may sit inside a longer word.
+    pub fn search_word_backward_anywhere(&mut self) {
+        self.search_word_under_cursor(SearchDirection::Backward, false);
+    }
+
+    /// Shared `*`/`#`/`g*`/`g#` body. Like Vim, the recorded pattern is
+    /// `\<word\>` for the whole-word forms and the bare word for the `g`
+    /// forms, and it goes into the search history, so `n`, `gn`, and `/`
+    /// followed by Up all see the same pattern.
+    fn search_word_under_cursor(&mut self, direction: SearchDirection, whole_word: bool) {
         self.render_damage.mark_full();
-        if let Some(word) = self.get_word_under_cursor() {
-            // Set as search pattern
-            self.search.last_pattern = Some(word.clone());
-            self.search.last_direction = SearchDirection::Backward;
-            if self.do_search(&word, SearchDirection::Backward, true) {
-                self.refresh_visible_search_matches(&word);
-                self.update_search_match_stats(&word);
-            } else {
-                self.search_matches.clear();
-                self.search.match_stats = None;
-                self.set_status(format!("Pattern not found: {}", word));
-            }
-        } else {
+        let Some(word) = self.get_word_under_cursor() else {
             self.set_status("No word under cursor");
+            return;
+        };
+        let pattern = if whole_word {
+            SearchPattern::whole_word(&word)
+        } else {
+            word
+        };
+        self.search.record_history(pattern.clone());
+        self.search.last_pattern = Some(pattern.clone());
+        self.search.last_direction = direction;
+        if self.do_search(&pattern, direction, true) {
+            self.refresh_visible_search_matches(&pattern);
+            self.update_search_match_stats(&pattern);
+        } else {
+            self.search_matches.clear();
+            self.search.match_stats = None;
+            self.set_status(format!("Pattern not found: {}", pattern));
         }
     }
 
@@ -7232,9 +7361,20 @@ impl Editor {
 
         self.record_jump();
         self.mode = Mode::Visual;
-        self.visual = VisualSelection::new(line, start_col);
+        let last_col = end_col.saturating_sub(1).max(start_col);
+        match direction {
+            // gn anchors at the match start and puts the cursor on its end;
+            // gN mirrors that (cursor on the start, anchored at the end).
+            SearchDirection::Forward => {
+                self.visual = VisualSelection::new(line, start_col);
+                self.cursor.col = last_col;
+            }
+            SearchDirection::Backward => {
+                self.visual = VisualSelection::new(line, last_col);
+                self.cursor.col = start_col;
+            }
+        }
         self.cursor.line = line;
-        self.cursor.col = end_col.saturating_sub(1).max(start_col);
         self.scroll_to_cursor();
     }
 
@@ -7503,6 +7643,41 @@ impl Editor {
         ch.is_alphanumeric() || ch == '_'
     }
 
+    /// `Ctrl-a` / `Ctrl-x`: add `delta` to the number at or after the cursor.
+    /// One undo step, cursor on the last digit like Vim; no number on the
+    /// rest of the line is a silent no-op.
+    pub fn add_to_number_at_cursor(&mut self, delta: i64) {
+        if self.reject_read_only_edit() {
+            return;
+        }
+        let Some(line) = self.buffers[self.current_buffer_idx].line(self.cursor.line) else {
+            return;
+        };
+        let line_str: String = line.chars().collect();
+        let chars: Vec<char> = line_str.chars().collect();
+        let Some(change) = increment::add_to_number(&chars, self.cursor.col, delta) else {
+            return;
+        };
+        let mut new_line: String = chars[..change.start].iter().collect();
+        new_line.push_str(&change.text);
+        new_line.extend(&chars[change.start + change.len..]);
+
+        self.begin_change();
+        self.undo_stack.record_change(Change::replace_line(
+            self.cursor.line,
+            line_str,
+            new_line.clone(),
+        ));
+        self.buffers[self.current_buffer_idx].replace_line(self.cursor.line, &new_line);
+        self.buffers[self.current_buffer_idx].mark_modified();
+        self.cursor.col = change.cursor_col();
+        // A number can grow by many chars (0x0 minus one is 18 wide), so
+        // with wrap off the view has to follow the cursor like any motion.
+        self.scroll_to_cursor();
+        self.undo_stack
+            .end_undo_group(self.cursor.line, self.cursor.col);
+    }
+
     /// Search and replace text
     /// Returns the number of replacements made
     pub fn substitute(
@@ -7625,10 +7800,11 @@ impl Editor {
         wrap: bool,
     ) -> Option<(usize, usize, bool)> {
         let total_lines = self.buffers[self.current_buffer_idx].len_lines();
+        let pattern = SearchPattern::parse(pattern);
         if total_lines == 0 || pattern.is_empty() {
             return None;
         }
-        let pattern_len = pattern.chars().count();
+        let pattern_len = pattern.text.chars().count();
 
         match direction {
             SearchDirection::Forward => {
@@ -7639,8 +7815,7 @@ impl Editor {
                     let search_start = self.cursor.col + 1;
                     let search_start_byte = Self::char_to_byte_idx(&line_str, search_start);
                     if search_start_byte < line_str.len() {
-                        if let Some(pos) = line_str[search_start_byte..].find(pattern) {
-                            let byte_pos = search_start_byte + pos;
+                        if let Some(byte_pos) = pattern.find(&line_str, search_start_byte) {
                             return Some((
                                 self.cursor.line,
                                 Self::byte_to_char_idx(&line_str, byte_pos),
@@ -7654,13 +7829,16 @@ impl Editor {
                 for line_idx in (self.cursor.line + 1)..total_lines {
                     if let Some(line) = self.buffers[self.current_buffer_idx].line(line_idx) {
                         let line_str: String = line.chars().collect();
-                        if let Some(pos) = line_str.find(pattern) {
+                        if let Some(pos) = pattern.find(&line_str, 0) {
                             return Some((line_idx, Self::byte_to_char_idx(&line_str, pos), false));
                         }
                     }
                 }
 
-                // Wrap around if enabled
+                // Wrap around if enabled. On the cursor's line only a match
+                // starting at or before the cursor counts; the search is run
+                // on the whole line so the word boundary after the match is
+                // checked against the real neighbor, not a sliced end.
                 if wrap {
                     for line_idx in 0..=self.cursor.line {
                         if let Some(line) = self.buffers[self.current_buffer_idx].line(line_idx) {
@@ -7671,8 +7849,9 @@ impl Editor {
                                 line_str.chars().count()
                             };
                             let end_byte = Self::char_to_byte_idx(&line_str, end_col);
-                            if let Some(pos) =
-                                line_str[..end_byte.min(line_str.len())].find(pattern)
+                            if let Some(pos) = pattern
+                                .find(&line_str, 0)
+                                .filter(|pos| pos + pattern.text.len() <= end_byte)
                             {
                                 return Some((
                                     line_idx,
@@ -7691,7 +7870,7 @@ impl Editor {
                     let line_str: String = line.chars().collect();
                     if self.cursor.col > 0 {
                         let end_byte = Self::char_to_byte_idx(&line_str, self.cursor.col);
-                        if let Some(pos) = line_str[..end_byte].rfind(pattern) {
+                        if let Some(pos) = pattern.rfind(&line_str, end_byte) {
                             return Some((
                                 self.cursor.line,
                                 Self::byte_to_char_idx(&line_str, pos),
@@ -7705,13 +7884,15 @@ impl Editor {
                 for line_idx in (0..self.cursor.line).rev() {
                     if let Some(line) = self.buffers[self.current_buffer_idx].line(line_idx) {
                         let line_str: String = line.chars().collect();
-                        if let Some(pos) = line_str.rfind(pattern) {
+                        if let Some(pos) = pattern.rfind(&line_str, line_str.len()) {
                             return Some((line_idx, Self::byte_to_char_idx(&line_str, pos), false));
                         }
                     }
                 }
 
-                // Wrap around if enabled
+                // Wrap around if enabled. Same whole-line reasoning as the
+                // forward wrap: the last match is taken, then filtered to
+                // start at or after the cursor.
                 if wrap {
                     for line_idx in (self.cursor.line..total_lines).rev() {
                         if let Some(line) = self.buffers[self.current_buffer_idx].line(line_idx) {
@@ -7722,14 +7903,15 @@ impl Editor {
                                 0
                             };
                             let start_byte = Self::char_to_byte_idx(&line_str, start_col);
-                            if start_byte < line_str.len() {
-                                if let Some(pos) = line_str[start_byte..].rfind(pattern) {
-                                    return Some((
-                                        line_idx,
-                                        Self::byte_to_char_idx(&line_str, start_byte + pos),
-                                        true,
-                                    ));
-                                }
+                            if let Some(pos) = pattern
+                                .rfind(&line_str, line_str.len())
+                                .filter(|&pos| pos >= start_byte)
+                            {
+                                return Some((
+                                    line_idx,
+                                    Self::byte_to_char_idx(&line_str, pos),
+                                    true,
+                                ));
                             }
                         }
                     }
@@ -8560,29 +8742,49 @@ impl Editor {
                 .unwrap_or(true)
         };
 
-        let cursor_line = self.cursor.line.min(line_count.saturating_sub(1));
-        let line = if is_blank(cursor_line) {
-            let next = (cursor_line + 1..line_count).find(|&line| !is_blank(line));
-            next.or_else(|| (0..cursor_line).rev().find(|&line| !is_blank(line)))?
-        } else {
-            cursor_line
-        };
+        let last_line = buffer.addressable_line_count().saturating_sub(1);
+        let cursor_line = self.cursor.line.min(last_line);
 
-        let mut start_line = line;
+        // Vim on a blank line: ip selects the blank-line run itself, and ap
+        // selects the blank run plus the following paragraph (:h ap).
+        if is_blank(cursor_line) {
+            let mut start_line = cursor_line;
+            while start_line > 0 && is_blank(start_line - 1) {
+                start_line -= 1;
+            }
+            let mut end_line = cursor_line;
+            while end_line + 1 <= last_line && is_blank(end_line + 1) {
+                end_line += 1;
+            }
+            if modifier == TextObjectModifier::Around {
+                while end_line + 1 <= last_line && !is_blank(end_line + 1) {
+                    end_line += 1;
+                }
+            }
+            return Some((start_line, 0, end_line, buffer.line_len(end_line)));
+        }
+
+        let mut start_line = cursor_line;
         while start_line > 0 && !is_blank(start_line - 1) {
             start_line -= 1;
         }
 
-        let mut end_line = line;
-        while end_line + 1 < line_count && !is_blank(end_line + 1) {
+        let mut end_line = cursor_line;
+        while end_line + 1 <= last_line && !is_blank(end_line + 1) {
             end_line += 1;
         }
 
         if modifier == TextObjectModifier::Around {
-            if end_line + 1 < line_count && is_blank(end_line + 1) {
-                end_line += 1;
-            } else if start_line > 0 && is_blank(start_line - 1) {
-                start_line -= 1;
+            // Vim's ap takes ALL trailing blank lines, or all leading ones
+            // when there are none trailing.
+            if end_line + 1 <= last_line && is_blank(end_line + 1) {
+                while end_line + 1 <= last_line && is_blank(end_line + 1) {
+                    end_line += 1;
+                }
+            } else {
+                while start_line > 0 && is_blank(start_line - 1) {
+                    start_line -= 1;
+                }
             }
         }
 
@@ -8880,9 +9082,11 @@ impl Editor {
                     last_quote = Some(i);
                     in_quotes = true;
                 } else {
-                    // Found a pair
+                    // Found a pair. Vim takes the pair containing the cursor
+                    // OR the first pair after it — quote objects seek
+                    // forward on the line (:h a').
                     if let Some(start) = last_quote {
-                        if col >= start && col <= i {
+                        if col <= i {
                             open_pos = Some(start);
                             close_pos = Some(i);
                             break;
@@ -8906,7 +9110,25 @@ impl Editor {
                     None
                 }
             }
-            TextObjectModifier::Around => Some((line, open, line, close)),
+            TextObjectModifier::Around => {
+                // Vim's a" spans through trailing whitespace, or leading
+                // whitespace when there is none trailing (:h a').
+                let mut end = close;
+                while chars.get(end + 1).is_some_and(|c| *c == ' ' || *c == '\t') {
+                    end += 1;
+                }
+                let mut start = open;
+                if end == close {
+                    while start > 0
+                        && chars
+                            .get(start - 1)
+                            .is_some_and(|c| *c == ' ' || *c == '\t')
+                    {
+                        start -= 1;
+                    }
+                }
+                Some((line, start, line, end))
+            }
         }
     }
 
@@ -9223,6 +9445,10 @@ impl Editor {
     /// Join count lines total, matching Vim's J count behavior.
     pub fn join_lines_count(&mut self, count: usize) {
         let joins = count.max(2).saturating_sub(1);
+        // One change for the whole count, so a single undo restores every
+        // line like Vim; each join opens its own group otherwise.
+        self.undo_stack
+            .begin_compound_group(self.cursor.line, self.cursor.col);
         for _ in 0..joins {
             let before = self.buffers[self.current_buffer_idx].len_lines();
             self.join_lines();
@@ -9230,6 +9456,8 @@ impl Editor {
                 break;
             }
         }
+        self.undo_stack
+            .end_compound_group(self.cursor.line, self.cursor.col);
     }
 
     /// Join current line with next line without inserting space (gJ command)
@@ -9269,6 +9497,8 @@ impl Editor {
     /// Join count lines total without inserting spaces, matching gJ with count.
     pub fn join_lines_no_space_count(&mut self, count: usize) {
         let joins = count.max(2).saturating_sub(1);
+        self.undo_stack
+            .begin_compound_group(self.cursor.line, self.cursor.col);
         for _ in 0..joins {
             let before = self.buffers[self.current_buffer_idx].len_lines();
             self.join_lines_no_space();
@@ -9276,6 +9506,8 @@ impl Editor {
                 break;
             }
         }
+        self.undo_stack
+            .end_compound_group(self.cursor.line, self.cursor.col);
     }
 
     // ============================================
@@ -10186,8 +10418,131 @@ impl Editor {
 
     /// Case transformation on visual selection
     pub fn case_visual(&mut self, op: CaseOperator) {
+        self.map_visual_selection_chars(|c| match op {
+            CaseOperator::Lowercase => c.to_lowercase().collect(),
+            CaseOperator::Uppercase => c.to_uppercase().collect(),
+            CaseOperator::ToggleCase => {
+                if c.is_lowercase() {
+                    c.to_uppercase().collect()
+                } else if c.is_uppercase() {
+                    c.to_lowercase().collect()
+                } else {
+                    c.to_string()
+                }
+            }
+        });
+    }
+
+    /// `{Visual}r{char}`: every selected character becomes `ch`.
+    pub fn replace_visual_selection(&mut self, ch: char) {
+        self.map_visual_selection_chars(|_| ch.to_string());
+    }
+
+    /// Apply `map` to every character of the visual selection, honoring the
+    /// mode: whole lines for V, the inclusive span for v, and only the
+    /// column block for Ctrl-V (lines too short for it are left alone).
+    /// One undo group, and the cursor ends on the selection start like
+    /// Vim's visual operators. Leaves visual mode itself, through the path
+    /// that keeps the cursor put and remembers the selection for `gv`.
+    fn map_visual_selection_chars(&mut self, map: impl Fn(char) -> String) {
         let (start_line, start_col, end_line, end_col) = self.get_visual_range();
-        self.transform_case(start_line, start_col, end_line, end_col, op);
+        let linewise = self.mode == Mode::VisualLine;
+        let block = self.mode == Mode::VisualBlock;
+        let buffer_idx = self.current_buffer_idx;
+        self.exit_visual_mode();
+
+        // Cursor first, so both the change and its undo land on the
+        // selection start like Vim.
+        self.cursor.line = start_line;
+        self.cursor.col = if linewise { 0 } else { start_col };
+        self.begin_change();
+        let mut changed = false;
+        for line_idx in start_line..=end_line {
+            let Some(line) = self.buffers[buffer_idx].line(line_idx) else {
+                continue;
+            };
+            let line_str: String = line.chars().collect();
+            let content_len = self.buffers[buffer_idx].line_len(line_idx);
+            if content_len == 0 {
+                continue;
+            }
+            let last = content_len - 1;
+            let (from, to) = if linewise {
+                (0, last)
+            } else if block {
+                (start_col, end_col.min(last))
+            } else {
+                let from = if line_idx == start_line { start_col } else { 0 };
+                let to = if line_idx == end_line {
+                    end_col.min(last)
+                } else {
+                    last
+                };
+                (from, to)
+            };
+            if from > to {
+                continue;
+            }
+            let new_line: String = line_str
+                .chars()
+                .enumerate()
+                .map(|(col, c)| {
+                    if col >= from && col <= to {
+                        map(c)
+                    } else {
+                        c.to_string()
+                    }
+                })
+                .collect();
+            if new_line != line_str {
+                self.undo_stack.record_change(Change::replace_line(
+                    line_idx,
+                    line_str,
+                    new_line.clone(),
+                ));
+                self.buffers[buffer_idx].replace_line(line_idx, &new_line);
+                changed = true;
+            }
+        }
+
+        self.undo_stack
+            .end_undo_group(self.cursor.line, self.cursor.col);
+        if changed {
+            self.buffers[buffer_idx].mark_modified();
+        }
+        self.clamp_cursor();
+    }
+
+    /// `{Visual}J` / `{Visual}gJ`: join the selected lines, at least two.
+    pub fn join_visual(&mut self, with_spaces: bool) {
+        let (start_line, _, end_line, _) = self.get_visual_range();
+        let count = (end_line - start_line + 1).max(2);
+        self.exit_visual_mode();
+        self.cursor.line = start_line;
+        if with_spaces {
+            self.join_lines_count(count);
+        } else {
+            self.join_lines_no_space_count(count);
+        }
+    }
+
+    /// `{Visual}=`: re-indent the selected lines, cursor on the first
+    /// non-blank of the first one.
+    pub fn auto_indent_visual(&mut self) {
+        let (start_line, _, end_line, _) = self.get_visual_range();
+        self.exit_visual_mode();
+        self.auto_indent_lines(start_line, end_line);
+        let buffer = &self.buffers[self.current_buffer_idx];
+        let first_non_blank = (0..buffer.line_len(start_line))
+            .find(|&col| {
+                buffer
+                    .char_at(start_line, col)
+                    .is_some_and(|ch| !ch.is_whitespace())
+            })
+            .unwrap_or(0);
+        self.cursor.line = start_line;
+        self.cursor.col = first_non_blank;
+        self.clamp_cursor();
     }
 
     // ============================================
@@ -11232,6 +11587,8 @@ impl Editor {
     /// Open the fuzzy finder in file mode
     pub fn open_finder_files(&mut self) {
         let root = self.working_directory();
+        // The walk streams in the background; the finder_list_files metric is
+        // recorded by the main loop when the walk finishes.
         self.finder.open_files(&root);
         self.mode = Mode::Finder;
         // Initialize preview for the first selected item
@@ -11375,6 +11732,21 @@ impl Editor {
         let items = crate::finder::keymap_finder_items(&self.settings.keymap);
         self.finder.open_keymaps_with_query(items, query);
         self.mode = Mode::Finder;
+        // A pre-filled query renders highlights on the very first frame.
+        self.ensure_finder_visible_match_indices();
+    }
+
+    /// Top up match highlight indices for the finder rows about to render.
+    /// Must run after anything that changes the finder query, filter, or
+    /// scroll position; rendering itself only has immutable editor access.
+    pub fn ensure_finder_visible_match_indices(&mut self) {
+        let win = crate::finder::FloatingWindow::centered_with_preview(
+            self.term_width,
+            self.term_height,
+            self.finder.preview_enabled,
+        );
+        let list_height = win.height.saturating_sub(4) as usize;
+        self.finder.ensure_visible_match_indices(list_height);
     }
 
     /// Open the fuzzy finder in marks mode
@@ -11525,7 +11897,7 @@ impl Editor {
     pub fn close_finder(&mut self) {
         self.mode = Mode::Normal;
         self.clear_status();
-        self.finder.cancel_grep_search();
+        self.finder.cancel_background_work();
         self.finder.clear_preview_cache();
     }
 
@@ -11855,9 +12227,11 @@ impl Editor {
 
     fn parse_current_buffer(&mut self) {
         let buffer_idx = self.current_buffer_idx;
-        let buffer = &self.buffers[buffer_idx];
-        self.syntax.parse(buffer);
-        self.last_syntax_version = buffer.version();
+        let started = Instant::now();
+        self.syntax.parse(&self.buffers[buffer_idx]);
+        self.flight_recorder
+            .record("syntax_parse", started.elapsed());
+        self.last_syntax_version = self.buffers[buffer_idx].version();
         self.last_edit_at = None;
     }
 
@@ -12147,15 +12521,86 @@ mod tests {
         editor.execute_search();
         assert_eq!(editor.search.match_stats, Some((1, 4)));
 
-        editor.search_next();
+        editor.search_next(1);
         assert_eq!(editor.search.match_stats, Some((2, 4)));
 
-        editor.search_prev();
+        editor.search_prev(1);
         assert_eq!(editor.search.match_stats, Some((1, 4)));
 
         // Counter shares the highlight lifecycle: any non-search movement clears it.
         editor.clear_search_highlights();
         assert_eq!(editor.search.match_stats, None);
+    }
+
+    // The oracle can't see h_offset (its lines never scroll horizontally), so
+    // the horizontal half of the origin restore needs a native regression.
+    #[test]
+    fn increment_keeps_grown_number_cursor_on_screen() {
+        let mut editor = Editor::default();
+        editor.set_size(40, 10);
+        editor.settings.editor.wrap = false;
+        editor.replace_buffer_content(&format!("{}0x0\n", "x".repeat(30)));
+        editor.cursor.col = 30;
+        editor.scroll_to_cursor();
+        assert_eq!(editor.h_offset, 0, "setup starts unscrolled");
+
+        // 0x0 minus one is 18 chars wide, pushing the cursor past the edge.
+        editor.add_to_number_at_cursor(-1);
+
+        assert_eq!(editor.cursor.col, 47);
+        assert!(
+            editor.cursor.col < editor.h_offset + editor.text_area_width(),
+            "cursor col {} not visible with h_offset {} and width {}",
+            editor.cursor.col,
+            editor.h_offset,
+            editor.text_area_width()
+        );
+    }
+
+    #[test]
+    fn cancelled_search_restores_cursor_viewport_and_h_offset() {
+        let mut editor = Editor::default();
+        editor.set_size(40, 10);
+        editor.settings.editor.wrap = false;
+        let mut content = format!("{}tail\n", "x".repeat(120));
+        for _ in 0..20 {
+            content.push_str("filler\n");
+        }
+        content.push_str("beta\n");
+        editor.replace_buffer_content(&content);
+        editor.cursor.col = 120;
+        editor.scroll_to_cursor();
+        assert!(
+            editor.h_offset > 0,
+            "setup needs a horizontally scrolled view"
+        );
+        let origin = (
+            editor.cursor.line,
+            editor.cursor.col,
+            editor.viewport_offset,
+            editor.h_offset,
+        );
+
+        editor.enter_search_forward();
+        for ch in "beta".chars() {
+            editor.search.insert_char(ch);
+            editor.update_incremental_search();
+        }
+        // The preview scrolled to the match near the bottom of the file.
+        assert_ne!(editor.cursor.line, origin.0);
+        assert_eq!(editor.h_offset, 0);
+
+        editor.exit_search_mode();
+
+        assert_eq!(
+            (
+                editor.cursor.line,
+                editor.cursor.col,
+                editor.viewport_offset,
+                editor.h_offset,
+            ),
+            origin
+        );
     }
 
     #[test]
@@ -12173,7 +12618,7 @@ mod tests {
         editor.cursor.line = 0;
         editor.cursor.col = 0;
 
-        editor.search_next();
+        editor.search_next(1);
 
         assert_eq!(editor.cursor.line, 1);
         let visible_rows = editor.text_rows();
@@ -12244,6 +12689,48 @@ mod tests {
     }
 
     #[test]
+    fn star_highlights_and_counter_skip_embedded_words() {
+        let mut editor = Editor::default();
+        editor.set_size(80, 8);
+        editor.replace_buffer_content("abc abcdef\nabc\n");
+
+        editor.search_word_forward();
+
+        // The oracle pins the cursor; this pins what it cannot see: the
+        // highlight set, the [current/total] counter, and the recorded
+        // pattern, none of which may include the `abc` inside `abcdef`.
+        assert_eq!((editor.cursor.line, editor.cursor.col), (1, 0));
+        assert_eq!(editor.search_matches, vec![(0, 0, 3), (1, 0, 3)]);
+        assert_eq!(editor.search.match_stats, Some((2, 2)));
+        assert_eq!(editor.search.last_pattern.as_deref(), Some("\\<abc\\>"));
+        assert_eq!(
+            editor.search.history.last().map(String::as_str),
+            Some("\\<abc\\>")
+        );
+    }
+
+    #[test]
+    fn g_star_highlights_and_counter_include_embedded_words() {
+        let mut editor = Editor::default();
+        editor.set_size(80, 8);
+        editor.replace_buffer_content("abc abcdef\nabc\n");
+
+        editor.search_word_forward_anywhere();
+
+        // Mirror of the `*` test: with g* the embedded `abc` inside `abcdef`
+        // is a match for the highlights and the counter, and the recorded
+        // pattern is the bare word.
+        assert_eq!((editor.cursor.line, editor.cursor.col), (0, 4));
+        assert_eq!(editor.search_matches, vec![(0, 0, 3), (0, 4, 7), (1, 0, 3)]);
+        assert_eq!(editor.search.match_stats, Some((2, 3)));
+        assert_eq!(editor.search.last_pattern.as_deref(), Some("abc"));
+        assert_eq!(
+            editor.search.history.last().map(String::as_str),
+            Some("abc")
+        );
+    }
+
+    #[test]
     fn search_next_wraps_to_only_match_on_current_line() {
         let mut editor = Editor::default();
         editor.set_size(80, 8);
@@ -12255,7 +12742,7 @@ mod tests {
         editor.execute_search();
 
         let first_match = (editor.cursor.line, editor.cursor.col);
-        editor.search_next();
+        editor.search_next(1);
 
         assert_eq!((editor.cursor.line, editor.cursor.col), first_match);
         assert_ne!(
@@ -12276,7 +12763,7 @@ mod tests {
         editor.execute_search();
 
         let first_match = (editor.cursor.line, editor.cursor.col);
-        editor.search_prev();
+        editor.search_prev(1);
 
         assert_eq!((editor.cursor.line, editor.cursor.col), first_match);
         assert_ne!(
@@ -14163,6 +14650,103 @@ mod tests {
         assert_eq!(editor.current_diagnostics()[0].col_start, 2);
         assert_eq!(editor.current_diagnostics()[0].col_end, 3);
         assert_eq!(editor.all_diagnostics_at_cursor().len(), 1);
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// Poll until the background git status scan lands, like the main loop does.
+    fn wait_for_git_state(editor: &mut Editor) {
+        for _ in 0..200 {
+            if editor.poll_git_state() {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        panic!("background git status scan did not finish");
+    }
+
+    #[test]
+    fn perf_metrics_record_syntax_parse_and_git_file_statuses() {
+        let tmp = unique_temp_dir("nevi_perf_metrics");
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let root = tmp.canonicalize().expect("canonical temp dir");
+        let path = root.join("main.rs");
+        std::fs::write(&path, "fn main() {}\n").expect("write file");
+        let repo = git2::Repository::init(&root).expect("init repo");
+        commit_file(&repo, Path::new("main.rs"), "initial");
+
+        let mut editor = Editor::default();
+        editor.set_project_root(root.clone());
+        editor.init_git();
+        editor.open_file(path).expect("open file");
+        wait_for_git_state(&mut editor);
+
+        let names: Vec<&str> = editor.flight_recorder.events().map(|e| e.name).collect();
+        assert!(
+            names.contains(&"git_file_statuses"),
+            "the status scan must record its metric when applied: {names:?}"
+        );
+        assert!(
+            names.contains(&"syntax_parse"),
+            "opening a .rs file must record the parse: {names:?}"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn background_git_status_scan_populates_explorer_markers() {
+        let tmp = unique_temp_dir("nevi_async_git_status");
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let root = tmp.canonicalize().expect("canonical temp dir");
+        std::fs::write(root.join("tracked.rs"), "old\n").expect("write");
+        let repo = git2::Repository::init(&root).expect("init repo");
+        commit_file(&repo, Path::new("tracked.rs"), "initial");
+        std::fs::write(root.join("tracked.rs"), "new\n").expect("modify");
+        std::fs::write(root.join("untracked.rs"), "x\n").expect("untracked");
+
+        let mut editor = Editor::default();
+        editor.set_project_root(root.clone());
+        editor.init_git();
+
+        // init_git returns before the scan lands; markers arrive on poll.
+        wait_for_git_state(&mut editor);
+
+        assert_eq!(
+            editor
+                .explorer
+                .git_status_for_path(&root.join("tracked.rs")),
+            Some(crate::git::GitFileStatus::Modified)
+        );
+        assert_eq!(
+            editor
+                .explorer
+                .git_status_for_path(&root.join("untracked.rs")),
+            Some(crate::git::GitFileStatus::Untracked)
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn stale_git_status_scan_is_discarded() {
+        let tmp = unique_temp_dir("nevi_stale_git_status");
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let root = tmp.canonicalize().expect("canonical temp dir");
+        std::fs::write(root.join("a.rs"), "x\n").expect("write");
+        let repo = git2::Repository::init(&root).expect("init repo");
+        commit_file(&repo, Path::new("a.rs"), "initial");
+
+        let mut editor = Editor::default();
+        editor.set_project_root(root.clone());
+        editor.init_git();
+        // A second refresh supersedes the first; the first scan's result,
+        // whenever it lands, must not clobber the newer generation.
+        editor.refresh_explorer_git_statuses();
+        wait_for_git_state(&mut editor);
+
+        // Only the newest generation applies; polling again finds nothing.
+        assert!(!editor.poll_git_state());
 
         let _ = std::fs::remove_dir_all(&tmp);
     }

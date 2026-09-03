@@ -26,6 +26,16 @@ enum GrepSearchMessage {
     },
 }
 
+enum FileListMessage {
+    Batch {
+        generation: u64,
+        items: Vec<FinderItem>,
+    },
+    Finished {
+        generation: u64,
+    },
+}
+
 /// Mode for the fuzzy finder
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FinderMode {
@@ -250,6 +260,17 @@ pub struct FuzzyFinder {
     grep_search_generation: u64,
     /// Receiver for the currently running async grep search
     grep_search_receiver: Option<Receiver<GrepSearchMessage>>,
+    /// Whether the async file walk is still streaming results
+    pub file_list_running: bool,
+    /// Monotonic generation used to discard stale file walk results
+    file_list_generation: u64,
+    /// Receiver for the currently running async file walk
+    file_list_receiver: Option<Receiver<FileListMessage>>,
+    /// When the current file walk started (for the finder_list_files metric)
+    file_list_started: Option<std::time::Instant>,
+    /// Wall time of the walk that just finished; the main loop takes this
+    /// and records it, since the finder has no recorder access.
+    pub last_file_list_duration: Option<std::time::Duration>,
 }
 
 impl FuzzyFinder {
@@ -279,6 +300,11 @@ impl FuzzyFinder {
             grep_search_running: false,
             grep_search_generation: 0,
             grep_search_receiver: None,
+            file_list_running: false,
+            file_list_generation: 0,
+            file_list_receiver: None,
+            file_list_started: None,
+            last_file_list_duration: None,
         }
     }
 
@@ -309,10 +335,17 @@ impl FuzzyFinder {
             grep_search_running: false,
             grep_search_generation: 0,
             grep_search_receiver: None,
+            file_list_running: false,
+            file_list_generation: 0,
+            file_list_receiver: None,
+            file_list_started: None,
+            last_file_list_duration: None,
         }
     }
 
-    /// Open the finder in file mode
+    /// Open the finder in file mode. The walk streams from a background
+    /// thread (poll_file_list applies batches), so the picker opens instantly
+    /// and the UI never blocks on the file system.
     pub fn open_files(&mut self, cwd: &std::path::Path) {
         self.mode = FinderMode::Files;
         self.input_mode = FinderInputMode::Insert;
@@ -321,12 +354,122 @@ impl FuzzyFinder {
         self.selected = 0;
         self.scroll_offset = 0;
         self.clear_preview_cache();
-        self.cancel_grep_search();
+        self.cancel_background_work();
 
-        // Populate files
-        self.items = self.file_picker.list_files(cwd);
-        self.filtered = (0..self.items.len()).collect();
+        self.items.clear();
+        self.filtered.clear();
         self.populated = true;
+
+        const FILE_LIST_BATCH_SIZE: usize = 500;
+        self.file_list_generation = self.file_list_generation.wrapping_add(1);
+        let generation = self.file_list_generation;
+        let picker = self.file_picker.clone();
+        let root = cwd.to_path_buf();
+        let (tx, rx) = mpsc::channel();
+        self.file_list_receiver = Some(rx);
+        self.file_list_running = true;
+        self.file_list_started = Some(std::time::Instant::now());
+
+        thread::spawn(move || {
+            let tx_finished = tx.clone();
+            picker.list_files_streaming(&root, FILE_LIST_BATCH_SIZE, |items| {
+                tx.send(FileListMessage::Batch { generation, items })
+                    .is_ok()
+            });
+            let _ = tx_finished.send(FileListMessage::Finished { generation });
+        });
+    }
+
+    fn cancel_file_list(&mut self) {
+        self.file_list_receiver = None;
+        self.file_list_running = false;
+        self.file_list_started = None;
+        self.file_list_generation = self.file_list_generation.wrapping_add(1);
+    }
+
+    /// Stop every background producer (grep search and file walk). Called by
+    /// all open_* entry points and on close so stale threads die promptly.
+    pub fn cancel_background_work(&mut self) {
+        self.cancel_grep_search();
+        self.cancel_file_list();
+    }
+
+    /// Apply pending async file walk results. Returns true when the list
+    /// changed and a redraw is needed.
+    pub fn poll_file_list(&mut self) -> bool {
+        let mut changed = false;
+
+        loop {
+            let message = match self.file_list_receiver.as_ref() {
+                Some(rx) => rx.try_recv(),
+                None => return changed,
+            };
+
+            match message {
+                Ok(FileListMessage::Batch { generation, items }) => {
+                    if self.mode != FinderMode::Files || generation != self.file_list_generation {
+                        continue;
+                    }
+
+                    let had_items = !self.items.is_empty();
+                    let new_start = self.items.len();
+                    self.items.extend(items);
+
+                    if self.query.is_empty() {
+                        self.filtered.extend(new_start..self.items.len());
+                    } else {
+                        // Score only the new arrivals and keep the filtered
+                        // list ordered; items already listed keep their score.
+                        let query = self.query.clone();
+                        for idx in new_start..self.items.len() {
+                            if let Some(score) = self
+                                .matcher
+                                .match_score(&query, self.items[idx].display.as_str())
+                            {
+                                self.items[idx].score = score;
+                                self.filtered.push(idx);
+                            }
+                        }
+                        let items = &self.items;
+                        self.filtered
+                            .sort_by_key(|&idx| (std::cmp::Reverse(items[idx].score), idx));
+                    }
+
+                    if !had_items {
+                        self.selected = 0;
+                        self.scroll_offset = 0;
+                        self.clear_preview_cache();
+                        if self.preview_enabled {
+                            self.preview_update_pending = true;
+                        }
+                    }
+
+                    changed = true;
+                }
+                Ok(FileListMessage::Finished { generation }) => {
+                    self.file_list_receiver = None;
+
+                    if self.mode == FinderMode::Files && generation == self.file_list_generation {
+                        self.file_list_running = false;
+                        self.last_file_list_duration =
+                            self.file_list_started.take().map(|start| start.elapsed());
+                        // The parallel walk arrives unordered; snap to the
+                        // stable alphabetical order now that it is complete.
+                        self.items.sort_by(|a, b| a.display.cmp(&b.display));
+                        self.update_filter();
+                        changed = true;
+                    }
+
+                    return changed;
+                }
+                Err(TryRecvError::Empty) => return changed,
+                Err(TryRecvError::Disconnected) => {
+                    self.file_list_receiver = None;
+                    self.file_list_running = false;
+                    return changed;
+                }
+            }
+        }
     }
 
     /// Open the finder in buffer mode
@@ -338,7 +481,7 @@ impl FuzzyFinder {
         self.selected = 0;
         self.scroll_offset = 0;
         self.clear_preview_cache();
-        self.cancel_grep_search();
+        self.cancel_background_work();
 
         // Populate buffers
         self.items = buffer_names
@@ -367,7 +510,7 @@ impl FuzzyFinder {
         self.selected = 0;
         self.scroll_offset = 0;
         self.clear_preview_cache();
-        self.cancel_grep_search();
+        self.cancel_background_work();
 
         self.items = lines
             .into_iter()
@@ -395,7 +538,7 @@ impl FuzzyFinder {
         self.selected = 0;
         self.scroll_offset = 0;
         self.clear_preview_cache();
-        self.cancel_grep_search();
+        self.cancel_background_work();
 
         // Populate harpoon files with slot numbers
         self.items = files
@@ -424,7 +567,7 @@ impl FuzzyFinder {
         self.selected = 0;
         self.scroll_offset = 0;
         self.clear_preview_cache();
-        self.cancel_grep_search();
+        self.cancel_background_work();
 
         // Populate marks
         self.items = marks
@@ -455,7 +598,7 @@ impl FuzzyFinder {
         self.selected = 0;
         self.scroll_offset = 0;
         self.clear_preview_cache();
-        self.cancel_grep_search();
+        self.cancel_background_work();
 
         self.items = terminal_items;
         self.filtered = (0..self.items.len()).collect();
@@ -476,7 +619,7 @@ impl FuzzyFinder {
         self.selected = 0;
         self.scroll_offset = 0;
         self.clear_preview_cache();
-        self.cancel_grep_search();
+        self.cancel_background_work();
 
         self.items = items;
         self.populated = true;
@@ -492,7 +635,7 @@ impl FuzzyFinder {
         self.selected = 0;
         self.scroll_offset = 0;
         self.clear_preview_cache();
-        self.cancel_grep_search();
+        self.cancel_background_work();
         self.preview_enabled = true;
 
         self.items = items;
@@ -510,7 +653,7 @@ impl FuzzyFinder {
         self.scroll_offset = 0;
         self.clear_preview_cache();
         self.cwd = cwd.to_path_buf();
-        self.cancel_grep_search();
+        self.cancel_background_work();
 
         // Start with empty results - will populate as user types
         self.items.clear();
@@ -528,7 +671,7 @@ impl FuzzyFinder {
         self.scroll_offset = 0;
         self.clear_preview_cache();
         self.cwd = cwd.to_path_buf();
-        self.cancel_grep_search();
+        self.cancel_background_work();
 
         if query.len() >= 2 {
             self.grep_search_pending = true;
@@ -550,7 +693,7 @@ impl FuzzyFinder {
         self.selected = 0;
         self.scroll_offset = 0;
         self.clear_preview_cache();
-        self.cancel_grep_search();
+        self.cancel_background_work();
 
         self.items = diagnostic_items;
         self.filtered = (0..self.items.len()).collect();
@@ -747,9 +890,9 @@ impl FuzzyFinder {
         self.grep_search_generation = self.grep_search_generation.wrapping_add(1);
     }
 
-    fn update_grep_match_indices(&mut self) {
-        for item in &mut self.items {
-            item.match_indices.clear();
+    /// Recompute match highlight indices for items[start..].
+    fn update_grep_match_indices_from(&mut self, start: usize) {
+        for item in &mut self.items[start..] {
             item.match_indices = grep_result_match_indices(
                 &item.display,
                 &self.query,
@@ -774,7 +917,7 @@ impl FuzzyFinder {
                 } else {
                     self.items.clear();
                     self.filtered.clear();
-                    self.cancel_grep_search();
+                    self.cancel_background_work();
                     self.clear_preview_cache();
                 }
             }
@@ -784,37 +927,41 @@ impl FuzzyFinder {
                     // No filter, show all items
                     self.filtered = (0..self.items.len()).collect();
                 } else {
-                    // Filter and sort by match score, and get match indices
+                    // Score-and-sort only. Highlight indices are only ever read
+                    // for the rows on screen, so ensure_visible_match_indices
+                    // computes them lazily instead of paying for every match
+                    // on every keystroke.
                     let mode = self.mode;
                     let query = self.query.clone();
                     let matcher = &mut self.matcher;
-                    let mut scored: Vec<(usize, u32, Vec<usize>)> = self
+                    let mut scored: Vec<(usize, u32)> = self
                         .items
                         .iter()
                         .enumerate()
                         .filter_map(|(idx, item)| {
-                            let (match_start, match_text) = if mode == FinderMode::GitChanges {
-                                git_changes_display_path(&item.display)
+                            let match_text = if mode == FinderMode::GitChanges {
+                                git_changes_display_path(&item.display).1
                             } else {
-                                (0, item.display.as_str())
+                                item.display.as_str()
                             };
-                            matcher.match_score(&query, match_text).map(|score| {
-                                let indices =
-                                    offset_match_indices(matcher, &query, match_text, match_start);
-                                (idx, score, indices)
-                            })
+                            matcher
+                                .match_score(&query, match_text)
+                                .map(|score| (idx, score))
                         })
                         .collect();
 
-                    // Sort by score (higher is better)
-                    scored.sort_by(|a, b| b.1.cmp(&a.1));
-
-                    // Store match indices in items
-                    for (idx, _, indices) in &scored {
-                        self.items[*idx].match_indices = indices.clone();
+                    // Remember scores on the items: while the file walk is
+                    // still streaming, poll_file_list merges new arrivals into
+                    // the filtered order by item score.
+                    for (idx, score) in &scored {
+                        self.items[*idx].score = *score;
                     }
 
-                    self.filtered = scored.into_iter().map(|(idx, _, _)| idx).collect();
+                    // Sort by score (higher is better); stable so equal scores
+                    // keep their item order.
+                    scored.sort_by(|a, b| b.1.cmp(&a.1));
+
+                    self.filtered = scored.into_iter().map(|(idx, _)| idx).collect();
                 }
             }
         }
@@ -824,10 +971,44 @@ impl FuzzyFinder {
         self.scroll_offset = 0;
     }
 
+    /// Compute match highlight indices for just the rows about to render.
+    /// update_filter no longer computes indices for every match; this tops up
+    /// the visible window (a row keeps its indices until the query changes).
+    /// Grep mode is excluded: its indices are set when result batches arrive.
+    pub fn ensure_visible_match_indices(&mut self, visible_height: usize) {
+        if self.query.is_empty() || self.mode == FinderMode::Grep {
+            return;
+        }
+
+        let (start, end) = self.visible_range(visible_height);
+        let start = start.min(end);
+        let mode = self.mode;
+        let query = self.query.clone();
+
+        for filtered_idx in start..end {
+            let item_idx = self.filtered[filtered_idx];
+            let Some(item) = self.items.get_mut(item_idx) else {
+                continue;
+            };
+            if !item.match_indices.is_empty() {
+                continue;
+            }
+            let (match_start, match_text) = if mode == FinderMode::GitChanges {
+                git_changes_display_path(&item.display)
+            } else {
+                (0, item.display.as_str())
+            };
+            item.match_indices =
+                offset_match_indices(&mut self.matcher, &query, match_text, match_start);
+        }
+    }
+
     /// Get display text for the current filter state
     pub fn status_text(&self) -> String {
         if self.mode == FinderMode::Grep && self.grep_search_running {
             format!("{}/{} searching", self.filtered.len(), self.items.len())
+        } else if self.mode == FinderMode::Files && self.file_list_running {
+            format!("{}/{} scanning", self.filtered.len(), self.items.len())
         } else {
             format!("{}/{}", self.filtered.len(), self.items.len())
         }
@@ -879,7 +1060,7 @@ impl FuzzyFinder {
         } else {
             self.items.clear();
             self.filtered.clear();
-            self.cancel_grep_search();
+            self.cancel_background_work();
             self.clear_preview_cache();
         }
     }
@@ -907,9 +1088,13 @@ impl FuzzyFinder {
                     }
 
                     let had_items = !self.items.is_empty();
+                    // Indices for already-applied batches are still valid (the
+                    // query is fixed for a generation), so only the new batch
+                    // needs highlighting work.
+                    let new_start = self.items.len();
                     self.items.extend(items);
                     self.filtered = (0..self.items.len()).collect();
-                    self.update_grep_match_indices();
+                    self.update_grep_match_indices_from(new_start);
 
                     if !had_items {
                         self.selected = 0;
@@ -1129,6 +1314,52 @@ fn grep_result_match_indices(display: &str, query: &str, start_byte: usize) -> V
 
     let query_lower = query.to_lowercase();
     let query_len = query.chars().count();
+
+    // Fast path: lowercase the line once and substring-search the lowered
+    // copy. This needs 1:1 char alignment between original and lowered text;
+    // lowercasing can expand a char (e.g. 'İ' becomes two chars), so fall
+    // back to the per-position scan when counts disagree.
+    let display_lower = display.to_lowercase();
+    if display_lower.chars().count() != display.chars().count()
+        || query_lower.chars().count() != query_len
+    {
+        return grep_result_match_indices_per_position(
+            display,
+            &query_lower,
+            query_len,
+            start_byte,
+        );
+    }
+
+    let start_char = display[..start_byte].chars().count();
+    let mut search_byte = display_lower
+        .char_indices()
+        .nth(start_char)
+        .map(|(byte_idx, _)| byte_idx)
+        .unwrap_or(display_lower.len());
+    let mut chars_before = start_char;
+    let mut indices = Vec::new();
+
+    while let Some(rel) = display_lower[search_byte..].find(&query_lower) {
+        let abs = search_byte + rel;
+        let match_char = chars_before + display_lower[search_byte..abs].chars().count();
+        indices.extend(match_char..match_char + query_len);
+        // Non-overlapping, matching the per-position scan: resume after the match.
+        chars_before = match_char + query_len;
+        search_byte = abs + query_lower.len();
+    }
+
+    indices
+}
+
+/// Original per-position scan, kept for text where lowercasing changes char
+/// counts. O(len^2) allocations, acceptable because this path is rare.
+fn grep_result_match_indices_per_position(
+    display: &str,
+    query_lower: &str,
+    query_len: usize,
+    start_byte: usize,
+) -> Vec<usize> {
     let start_char = display[..start_byte].chars().count();
     let mut next_start_char = start_char;
     let mut indices = Vec::new();
@@ -1138,7 +1369,7 @@ fn grep_result_match_indices(display: &str, query: &str, start_byte: usize) -> V
             continue;
         }
 
-        if display[byte_idx..].to_lowercase().starts_with(&query_lower) {
+        if display[byte_idx..].to_lowercase().starts_with(query_lower) {
             let end_char = char_idx + query_len;
             indices.extend(char_idx..end_char);
             next_start_char = end_char.max(char_idx + 1);
@@ -1172,7 +1403,9 @@ impl Default for FuzzyFinder {
 
 #[cfg(test)]
 mod tests {
-    use super::{FinderInputMode, FinderItem, FinderMode, FuzzyFinder, GrepSearchMessage};
+    use super::{
+        FileListMessage, FinderInputMode, FinderItem, FinderMode, FuzzyFinder, GrepSearchMessage,
+    };
     use std::fs;
     use std::path::{Path, PathBuf};
     use std::sync::mpsc;
@@ -1369,6 +1602,7 @@ mod tests {
         for ch in "type".chars() {
             finder.insert_char(ch);
         }
+        finder.ensure_visible_match_indices(10);
 
         let item = finder.selected_item().expect("matching item");
         let highlighted: String = item
@@ -1602,7 +1836,7 @@ mod tests {
             PathBuf::from("src/main.rs"),
         )];
 
-        finder.update_grep_match_indices();
+        finder.update_grep_match_indices_from(0);
 
         assert!(finder.items[0].match_indices.is_empty());
     }
@@ -1617,7 +1851,7 @@ mod tests {
             PathBuf::from("src/main.rs"),
         )];
 
-        finder.update_grep_match_indices();
+        finder.update_grep_match_indices_from(0);
 
         let chars: Vec<char> = finder.items[0].display.chars().collect();
         let highlighted: String = finder.items[0]
@@ -1633,5 +1867,397 @@ mod tests {
                 .iter()
                 .all(|idx| *idx >= "src/main.rs:12: ".chars().count())
         );
+    }
+
+    #[test]
+    fn grep_result_highlight_matches_mixed_case_non_overlapping() {
+        let display = "src/a.rs:1: Needle needleNEEDLE end";
+        let indices = super::grep_result_match_indices(display, "needle", "src/a.rs:1: ".len());
+
+        let chars: Vec<char> = display.chars().collect();
+        let highlighted: String = indices.iter().map(|idx| chars[*idx]).collect();
+        assert_eq!(highlighted, "NeedleneedleNEEDLE");
+
+        let snippet_start = "src/a.rs:1: ".chars().count();
+        assert_eq!(indices[0], snippet_start);
+    }
+
+    #[test]
+    fn grep_result_highlight_handles_multibyte_before_match() {
+        // 'é' is 2 bytes but 1 char; indices are char positions, so the match
+        // position must not drift after multibyte text.
+        let display = "src/é.rs:1: caf\u{e9} needle";
+        let start_byte = display.find("caf").expect("snippet start");
+        let indices = super::grep_result_match_indices(display, "needle", start_byte);
+
+        let chars: Vec<char> = display.chars().collect();
+        let highlighted: String = indices.iter().map(|idx| chars[*idx]).collect();
+        assert_eq!(highlighted, "needle");
+        assert_eq!(
+            indices[0],
+            display.chars().count() - "needle".chars().count()
+        );
+    }
+
+    fn files_finder_with_items(count: usize) -> FuzzyFinder {
+        let mut finder = FuzzyFinder::new();
+        finder.mode = FinderMode::Files;
+        finder.items = (0..count)
+            .map(|i| {
+                FinderItem::new(
+                    format!("src/module_{i}/some_file_{i}.rs"),
+                    PathBuf::from(format!("src/module_{i}/some_file_{i}.rs")),
+                )
+            })
+            .collect();
+        finder.filtered = (0..count).collect();
+        finder.populated = true;
+        finder
+    }
+
+    #[test]
+    fn match_indices_computed_only_for_visible_rows() {
+        let mut finder = files_finder_with_items(100);
+        for ch in "file".chars() {
+            finder.insert_char(ch);
+        }
+        assert!(finder.filtered.len() > 10, "query should match many items");
+
+        // Filtering alone computes no indices.
+        assert!(
+            finder
+                .filtered
+                .iter()
+                .all(|&idx| finder.items[idx].match_indices.is_empty())
+        );
+
+        finder.ensure_visible_match_indices(5);
+
+        let (start, end) = finder.visible_range(5);
+        for filtered_idx in start..end {
+            let item = &finder.items[finder.filtered[filtered_idx]];
+            assert!(
+                !item.match_indices.is_empty(),
+                "visible row must be highlighted: {}",
+                item.display
+            );
+        }
+        for filtered_idx in end..finder.filtered.len() {
+            let item = &finder.items[finder.filtered[filtered_idx]];
+            assert!(
+                item.match_indices.is_empty(),
+                "off-screen row must stay lazy: {}",
+                item.display
+            );
+        }
+    }
+
+    #[test]
+    fn scrolling_tops_up_match_indices_for_new_rows() {
+        let mut finder = files_finder_with_items(100);
+        for ch in "file".chars() {
+            finder.insert_char(ch);
+        }
+        finder.ensure_visible_match_indices(5);
+
+        // Move selection past the visible window and re-ensure, like the key
+        // handler does after navigation.
+        for _ in 0..7 {
+            finder.select_next();
+        }
+        finder.adjust_scroll(5);
+        finder.ensure_visible_match_indices(5);
+
+        let item = &finder.items[finder.filtered[finder.selected]];
+        assert!(
+            !item.match_indices.is_empty(),
+            "row scrolled into view must be highlighted"
+        );
+    }
+
+    #[test]
+    fn grep_result_highlight_falls_back_when_lowercase_expands() {
+        // 'İ' lowercases to two chars, breaking 1:1 alignment; the fallback
+        // scan must still find the plain match after it.
+        let display = "src/a.rs:1: \u{130}stanbul needle";
+        let start_byte = "src/a.rs:1: ".len();
+        let indices = super::grep_result_match_indices(display, "needle", start_byte);
+
+        let chars: Vec<char> = display.chars().collect();
+        let highlighted: String = indices.iter().map(|idx| chars[*idx]).collect();
+        assert_eq!(highlighted, "needle");
+    }
+
+    #[test]
+    fn poll_grep_search_keeps_earlier_batch_indices_intact() {
+        let mut finder = FuzzyFinder::new();
+        finder.mode = FinderMode::Grep;
+        finder.query = "needle".to_string();
+        finder.grep_search_generation = 7;
+        finder.grep_search_running = true;
+
+        let (tx, rx) = mpsc::channel();
+        finder.grep_search_receiver = Some(rx);
+
+        for batch_num in 0..2 {
+            tx.send(GrepSearchMessage::Batch {
+                generation: 7,
+                query: "needle".to_string(),
+                items: vec![
+                    FinderItem::new(
+                        format!("src/main.rs:{}: has needle here", batch_num + 1),
+                        PathBuf::from("src/main.rs"),
+                    )
+                    .with_line(batch_num + 1),
+                ],
+            })
+            .unwrap();
+            assert!(finder.poll_grep_search());
+        }
+
+        assert_eq!(finder.items.len(), 2);
+        for item in &finder.items {
+            let chars: Vec<char> = item.display.chars().collect();
+            let highlighted: String = item.match_indices.iter().map(|idx| chars[*idx]).collect();
+            assert_eq!(highlighted, "needle", "display={}", item.display);
+        }
+    }
+
+    #[test]
+    #[ignore = "perf budget guard; run explicitly with cargo test grep_index_budget -- --ignored --nocapture"]
+    fn grep_index_budget_batch_apply_stays_bounded() {
+        use std::time::{Duration, Instant};
+
+        // 20 batches x 50 items, 1000 total: the max_results default. Before
+        // the batch-scoped index update this re-scanned every accumulated item
+        // per batch with O(len^2) lowercasing; the budget locks in the fix.
+        let mut finder = FuzzyFinder::new();
+        finder.mode = FinderMode::Grep;
+        finder.query = "needle".to_string();
+        finder.grep_search_generation = 1;
+        finder.grep_search_running = true;
+
+        let (tx, rx) = mpsc::channel();
+        finder.grep_search_receiver = Some(rx);
+
+        let mut batch_times = Vec::new();
+        for batch_num in 0..20 {
+            let items: Vec<FinderItem> = (0..50)
+                .map(|i| {
+                    FinderItem::new(
+                        format!(
+                            "src/some/dir/file_{batch_num}_{i}.rs:{i}: let value = needle_probe_{i}; // padding padding padding padding needle",
+                        ),
+                        PathBuf::from("src/some/dir/file.rs"),
+                    )
+                    .with_line(i + 1)
+                })
+                .collect();
+            tx.send(GrepSearchMessage::Batch {
+                generation: 1,
+                query: "needle".to_string(),
+                items,
+            })
+            .unwrap();
+
+            let started = Instant::now();
+            assert!(finder.poll_grep_search());
+            batch_times.push(started.elapsed());
+        }
+
+        assert_eq!(finder.items.len(), 1000);
+
+        batch_times.sort_unstable();
+        let p95 = batch_times[(batch_times.len() * 95).div_ceil(100) - 1];
+        // Debug-build budget with CI-runner headroom (release p95 is ~114us,
+        // debug ~416us). Catches order-of-magnitude regressions like the old
+        // full-rescan, which grows past this as batches accumulate.
+        let budget = Duration::from_millis(25);
+        println!(
+            "grep batch apply: p95={p95:?} max={:?} budget={budget:?}",
+            batch_times.last().unwrap()
+        );
+        assert!(
+            p95 <= budget,
+            "grep batch apply p95 exceeded budget: p95={p95:?} budget={budget:?}"
+        );
+    }
+
+    #[test]
+    fn query_change_invalidates_stale_match_indices() {
+        let mut finder = files_finder_with_items(20);
+        for ch in "file".chars() {
+            finder.insert_char(ch);
+        }
+        finder.ensure_visible_match_indices(10);
+        let before = finder.items[finder.filtered[0]].match_indices.clone();
+        assert!(!before.is_empty());
+
+        finder.insert_char('_');
+        // Filtering cleared everything; ensure recomputes for the new query.
+        finder.ensure_visible_match_indices(10);
+        let item = &finder.items[finder.filtered[0]];
+        assert!(!item.match_indices.is_empty());
+        assert_ne!(item.match_indices, before, "indices must track the query");
+    }
+
+    #[test]
+    #[ignore = "perf budget guard; run explicitly with cargo test finder_filter_budget -- --ignored --nocapture"]
+    fn finder_filter_budget_keystroke_stays_bounded() {
+        use std::time::{Duration, Instant};
+
+        // 10k items is the file picker cap. Each keystroke re-filters all of
+        // them; the visible-row ensure afterwards mirrors the key handler.
+        let mut finder = files_finder_with_items(10_000);
+        let mut keystroke_times = Vec::new();
+
+        for ch in "somefil".chars() {
+            let started = Instant::now();
+            finder.insert_char(ch);
+            finder.ensure_visible_match_indices(40);
+            keystroke_times.push(started.elapsed());
+        }
+
+        keystroke_times.sort_unstable();
+        let p95 = keystroke_times[(keystroke_times.len() * 95).div_ceil(100) - 1];
+        // Debug-build budget with CI-runner headroom (release p95 is ~3.2ms,
+        // debug ~46ms). The laziness itself is guarded by the visible-rows
+        // regression tests; this catches order-of-magnitude blowups.
+        let budget = Duration::from_millis(250);
+        println!(
+            "finder filter keystroke: p95={p95:?} max={:?} budget={budget:?}",
+            keystroke_times.last().unwrap()
+        );
+        assert!(
+            p95 <= budget,
+            "finder filter keystroke p95 exceeded budget: p95={p95:?} budget={budget:?}"
+        );
+    }
+
+    fn wait_for_file_list(finder: &mut FuzzyFinder) {
+        for _ in 0..200 {
+            finder.poll_file_list();
+            if !finder.file_list_running {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        panic!("async file list did not finish");
+    }
+
+    #[test]
+    fn open_files_streams_and_sorts_alphabetically_on_finish() {
+        let root = unique_temp_dir("finder_stream_files");
+        fs::create_dir_all(root.join("src")).unwrap();
+        for name in ["zeta.rs", "alpha.rs", "midpoint.rs"] {
+            fs::write(root.join("src").join(name), "x").unwrap();
+        }
+
+        let mut finder = FuzzyFinder::new();
+        finder.open_files(&root);
+        assert!(
+            finder.populated,
+            "picker is usable before the walk finishes"
+        );
+        wait_for_file_list(&mut finder);
+
+        let displays: Vec<&str> = finder
+            .filtered
+            .iter()
+            .map(|&idx| finder.items[idx].display.as_str())
+            .collect();
+        assert_eq!(
+            displays,
+            vec!["src/alpha.rs", "src/midpoint.rs", "src/zeta.rs"],
+            "finished list must be sorted by path"
+        );
+        assert!(!finder.file_list_running);
+        assert!(finder.last_file_list_duration.is_some());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn file_list_batches_merge_into_scored_order_while_query_active() {
+        let mut finder = FuzzyFinder::new();
+        finder.mode = FinderMode::Files;
+        finder.populated = true;
+        finder.file_list_generation = 3;
+        finder.file_list_running = true;
+
+        let (tx, rx) = mpsc::channel();
+        finder.file_list_receiver = Some(rx);
+
+        tx.send(FileListMessage::Batch {
+            generation: 3,
+            items: vec![
+                FinderItem::new("src/other.rs".to_string(), PathBuf::from("src/other.rs")),
+                FinderItem::new("src/main.rs".to_string(), PathBuf::from("src/main.rs")),
+            ],
+        })
+        .unwrap();
+        assert!(finder.poll_file_list());
+
+        for ch in "main".chars() {
+            finder.insert_char(ch);
+        }
+        assert_eq!(finder.filtered.len(), 1);
+
+        // A batch arriving after typing must be scored against the live query
+        // and merged in order, not appended blindly.
+        tx.send(FileListMessage::Batch {
+            generation: 3,
+            items: vec![
+                FinderItem::new(
+                    "src/main_helpers.rs".to_string(),
+                    PathBuf::from("src/main_helpers.rs"),
+                ),
+                FinderItem::new("src/zzz.rs".to_string(), PathBuf::from("src/zzz.rs")),
+            ],
+        })
+        .unwrap();
+        assert!(finder.poll_file_list());
+
+        let displays: Vec<&str> = finder
+            .filtered
+            .iter()
+            .map(|&idx| finder.items[idx].display.as_str())
+            .collect();
+        assert_eq!(displays.len(), 2, "zzz.rs does not match the query");
+        assert!(displays.contains(&"src/main.rs"));
+        assert!(displays.contains(&"src/main_helpers.rs"));
+        let scores: Vec<u32> = finder
+            .filtered
+            .iter()
+            .map(|&idx| finder.items[idx].score)
+            .collect();
+        assert!(
+            scores.windows(2).all(|pair| pair[0] >= pair[1]),
+            "filtered must stay ordered by score: {scores:?}"
+        );
+    }
+
+    #[test]
+    fn stale_file_list_batches_are_discarded() {
+        let mut finder = FuzzyFinder::new();
+        finder.mode = FinderMode::Files;
+        finder.populated = true;
+        finder.file_list_generation = 5;
+        finder.file_list_running = true;
+
+        let (tx, rx) = mpsc::channel();
+        finder.file_list_receiver = Some(rx);
+
+        tx.send(FileListMessage::Batch {
+            generation: 4,
+            items: vec![FinderItem::new(
+                "stale.rs".to_string(),
+                PathBuf::from("stale.rs"),
+            )],
+        })
+        .unwrap();
+
+        assert!(!finder.poll_file_list());
+        assert!(finder.items.is_empty());
     }
 }

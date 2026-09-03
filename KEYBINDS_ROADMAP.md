@@ -4,7 +4,7 @@ Nevi aims for full vim/neovim keybind compatibility. Defaults follow Neovim, and
 keybinds are configurable — sensible defaults out of the box, overridable to your
 own taste.
 
-**Status: 339 keybinds implemented, 88 planned Vim/Neovim parity defaults.**
+**Status: 352 keybinds implemented, 75 planned Vim/Neovim parity defaults.**
 
 This file tracks what's **planned** (not yet implemented). For the full list of
 keybinds that already work, see [KEYBINDINGS.md](KEYBINDINGS.md). This list comes
@@ -29,17 +29,13 @@ remain Vim-compatible unless Nevi intentionally documents a difference.
 ordering leans on the common proxies (vimtutor and cheat-sheet staples, what
 Neovim itself promotes to a default, plugin popularity like vim-unimpaired) and
 on what Nevi users actually ask for in issues — user reports move a key up
-immediately. The keys most hands reach for first: `Ctrl+a` / `Ctrl+x`,
-`Ctrl+^`, `ZQ`, the visual-mode operators (`gu` / `gU` /
-`g~`, `r`, `J`, `=`), `gq` / `gw`, and among the larger areas, folds and
-quickfix before tabs and tags.
+immediately. The keys most hands reach for first: `gq` / `gw`, and among
+the larger areas, folds and quickfix before tabs and tags.
 
 ### Editing
 
 | Keybind | Planned behavior |
 |---------|------------------|
-| `Ctrl+a` / `{n}Ctrl+a` | Add [count] to the number at or after the cursor |
-| `Ctrl+x` / `{n}Ctrl+x` | Subtract [count] from the number at or after the cursor |
 | `U` | Undo all latest changes on the last changed line |
 | `g-` | Go to older text state (undo over time) |
 | `g+` | Go to newer text state |
@@ -63,13 +59,6 @@ quickfix before tabs and tags.
 | `zH` / `zL` | Scroll the view half a screen left / right |
 | `zs` / `ze` | Scroll so the cursor is at the start / end of the screen |
 
-### Search
-
-| Keybind | Planned behavior |
-|---------|------------------|
-| `g*` | Search the word under the cursor without word boundaries |
-| `g#` | Same as `g*`, backward |
-
 ### Jumps And Marks
 
 | Keybind | Planned behavior |
@@ -83,19 +72,8 @@ quickfix before tabs and tags.
 
 | Keybind | Planned behavior |
 |---------|------------------|
-| `Ctrl+^` | Edit the alternate (previously edited) buffer |
-| `ZQ` | Quit without saving (like `:q!`) |
 | `[b` / `]b` | Go to the previous / next buffer (Neovim default) |
 | `[<Space>` / `]<Space>` | Add an empty line above / below the cursor (Neovim default) |
-
-### Visual Mode
-
-| Keybind | Planned behavior |
-|---------|------------------|
-| `gu` / `gU` / `g~` | Lowercase / uppercase / toggle case of the selection (the `~`, `u`, `U` forms already work) |
-| `r{char}` | Replace every selected character with {char} |
-| `J` / `gJ` | Join the selected lines, with / without spaces |
-| `=` | Re-indent the selection |
 
 ### Insert Mode
 
@@ -103,7 +81,6 @@ quickfix before tabs and tags.
 |---------|------------------|
 | `Ctrl+e` | Insert the character from the line below the cursor |
 | `Ctrl+y` | Insert the character from the line above the cursor |
-| `Ctrl+v` | Insert the next character literally (or by decimal/hex code) |
 
 ### Command-Line Mode Defaults
 
@@ -153,9 +130,10 @@ reach for one of these, open an issue and it moves up.
 `g?{motion}` / `g??` (ROT13), `ga` (char value), `g8` (UTF-8 bytes), `gF`
 (open file at line number), `['` / `]'` / `` [` `` / `` ]` `` (previous/next
 lowercase mark), `Ctrl+k` digraphs (insert), the `Ctrl+x` completion sub-mode
-(insert; LSP completion covers this), operator-forced motions (`dvj`, `dVj`),
-and Neovim 0.11's `gri`/`grn`/`grr`/`gra`/`gO` LSP maps (covered by Nevi's own
-LSP keys above).
+(insert; LSP completion covers this), `Ctrl+v` character-code entry
+(`<C-v>123`, `<C-v>u1f600`; the literal-next-key form is implemented),
+operator-forced motions (`dvj`, `dVj`), and Neovim 0.11's
+`gri`/`grn`/`grr`/`gra`/`gO` LSP maps (covered by Nevi's own LSP keys above).
 
 ---
 

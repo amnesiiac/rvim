@@ -56,6 +56,8 @@ pub struct InputState {
     pub surround_add_line: bool,
     /// Pending visual surround (S waiting for char)
     pub pending_visual_surround: bool,
+    /// Pending visual replace (r waiting for the replacement char)
+    pub pending_visual_replace: bool,
     /// Pending comment toggle (gc waiting for motion or second c)
     pub pending_comment: bool,
     /// Pending case operator (gu, gU, g~ waiting for motion)
@@ -165,6 +167,13 @@ pub enum KeyAction {
     ScrollLineDown(usize),
     /// Scroll viewport up count lines without moving the cursor (<C-y>)
     ScrollLineUp(usize),
+    /// Add the signed amount to the number at or after the cursor
+    /// (<C-a> is +count, <C-x> is -count)
+    AddToNumber(i64),
+    /// Quit without saving, like `:q!` (ZQ)
+    ForceQuit,
+    /// Edit the alternate buffer, like `:e #` (<C-^>)
+    AlternateBuffer,
     /// Repeat last change (.). Carries the typed count, if any: Vim treats
     /// an explicit count (even `1.`) as replacing the change's own count.
     RepeatLastChange(Option<usize>),
@@ -186,12 +195,16 @@ pub enum KeyAction {
     EnterSearchForward,
     /// Enter search mode (backward)
     EnterSearchBackward,
-    /// Search next (n)
-    SearchNext,
-    /// Search previous (N)
-    SearchPrev,
+    /// Search next (n), repeated count times
+    SearchNext(usize),
+    /// Search previous (N), repeated count times
+    SearchPrev(usize),
     /// Search word under cursor forward (*)
     SearchWordForward,
+    /// g*: like * but without word boundaries
+    SearchWordForwardAnywhere,
+    /// g#: like # but without word boundaries
+    SearchWordBackwardAnywhere,
     /// Search word under cursor backward (#)
     SearchWordBackward,
     /// Search forward and select the match (gn)
@@ -377,6 +390,7 @@ impl InputState {
             || self.surround_add_motion.is_some()
             || self.surround_add_line
             || self.pending_visual_surround
+            || self.pending_visual_replace
             || self.pending_comment
             || self.pending_case_operator.is_some()
             || self.pending_set_mark
@@ -405,6 +419,7 @@ impl InputState {
         self.surround_add_motion = None;
         self.surround_add_line = false;
         self.pending_visual_surround = false;
+        self.pending_visual_replace = false;
         self.pending_comment = false;
         self.pending_case_operator = None;
         self.pending_set_mark = false;
@@ -936,6 +951,15 @@ impl InputState {
                 self.motion_or_operator(Motion::BigWordEnd, count)
             }
 
+            // <C-^> - alternate buffer. Legacy terminals send byte 0x1e, which
+            // crossterm reports as Ctrl+6; the kitty protocol reports Ctrl+^
+            // with Shift also held. Must sit before the `^` motion arm below,
+            // which accepts any modifier.
+            (modifiers, KeyCode::Char('^' | '6')) if modifiers.contains(KeyModifiers::CONTROL) => {
+                self.reset();
+                KeyAction::AlternateBuffer
+            }
+
             // Line motions
             (KeyModifiers::NONE, KeyCode::Char('0')) => {
                 self.motion_or_operator(Motion::LineStart, count)
@@ -1052,6 +1076,16 @@ impl InputState {
             (KeyModifiers::CONTROL, KeyCode::Char('y')) => {
                 self.reset();
                 KeyAction::ScrollLineUp(count)
+            }
+
+            // <C-a>/<C-x> - add to / subtract from the number under the cursor
+            (KeyModifiers::CONTROL, KeyCode::Char('a')) => {
+                self.reset();
+                KeyAction::AddToNumber(count as i64)
+            }
+            (KeyModifiers::CONTROL, KeyCode::Char('x')) => {
+                self.reset();
+                KeyAction::AddToNumber(-(count as i64))
             }
 
             // Insert mode entry (or text object modifier if operator pending)
@@ -1211,12 +1245,14 @@ impl InputState {
                 KeyAction::EnterSearchBackward
             }
             (KeyModifiers::NONE, KeyCode::Char('n')) => {
+                let count = self.effective_count();
                 self.reset();
-                KeyAction::SearchNext
+                KeyAction::SearchNext(count)
             }
             (KeyModifiers::SHIFT, KeyCode::Char('N')) => {
+                let count = self.effective_count();
                 self.reset();
-                KeyAction::SearchPrev
+                KeyAction::SearchPrev(count)
             }
             // Star search (* and #)
             (_, KeyCode::Char('*')) => {
@@ -1366,6 +1402,15 @@ impl InputState {
                 action
             }
             // g^ - move to first non-blank of current display line
+            // g* / g# - word search without the word boundaries
+            ('g', _, KeyCode::Char('*')) => {
+                self.reset();
+                KeyAction::SearchWordForwardAnywhere
+            }
+            ('g', _, KeyCode::Char('#')) => {
+                self.reset();
+                KeyAction::SearchWordBackwardAnywhere
+            }
             ('g', KeyModifiers::NONE, KeyCode::Char('^')) => {
                 let action = self.motion_or_operator(Motion::DisplayLineFirstNonBlank, count);
                 self.reset();
@@ -1503,6 +1548,11 @@ impl InputState {
             ('Z', KeyModifiers::SHIFT, KeyCode::Char('Z')) => {
                 self.reset();
                 KeyAction::WriteQuitIfModified
+            }
+            // ZQ - quit without saving
+            ('Z', KeyModifiers::SHIFT, KeyCode::Char('Q')) => {
+                self.reset();
+                KeyAction::ForceQuit
             }
             // ]d - go to next diagnostic
             (']', KeyModifiers::NONE, KeyCode::Char('d')) => {
@@ -2368,6 +2418,33 @@ mod tests {
     }
 
     #[test]
+    fn normal_zq_maps_to_force_quit() {
+        match run(&[shift('Z'), shift('Q')]) {
+            KeyAction::ForceQuit => {}
+            other => panic!("expected ForceQuit, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn ctrl_caret_maps_to_alternate_buffer_in_every_spelling() {
+        // Legacy terminals send byte 0x1e, which crossterm reports as Ctrl+6;
+        // the kitty protocol reports the shifted key with Ctrl and Shift held.
+        for key in [
+            ctrl('^'),
+            ctrl('6'),
+            KeyEvent::new(
+                KeyCode::Char('^'),
+                KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+            ),
+        ] {
+            match run(&[key]) {
+                KeyAction::AlternateBuffer => {}
+                other => panic!("expected AlternateBuffer for {key:?}, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
     fn ctrl_e_and_ctrl_y_map_to_line_scroll_actions_with_counts() {
         match run(&[ctrl('e')]) {
             KeyAction::ScrollLineDown(1) => {}
@@ -2643,12 +2720,20 @@ mod tests {
             other => panic!("expected EnterSearchBackward, got {:?}", other),
         }
         match run(&[key('n')]) {
-            KeyAction::SearchNext => {}
-            other => panic!("expected SearchNext, got {:?}", other),
+            KeyAction::SearchNext(1) => {}
+            other => panic!("expected SearchNext(1), got {:?}", other),
+        }
+        match run(&[key('3'), key('n')]) {
+            KeyAction::SearchNext(3) => {}
+            other => panic!("expected SearchNext(3), got {:?}", other),
         }
         match run(&[shift('N')]) {
-            KeyAction::SearchPrev => {}
-            other => panic!("expected SearchPrev, got {:?}", other),
+            KeyAction::SearchPrev(1) => {}
+            other => panic!("expected SearchPrev(1), got {:?}", other),
+        }
+        match run(&[key('2'), shift('N')]) {
+            KeyAction::SearchPrev(2) => {}
+            other => panic!("expected SearchPrev(2), got {:?}", other),
         }
         match run(&[key('*')]) {
             KeyAction::SearchWordForward => {}
@@ -2657,6 +2742,14 @@ mod tests {
         match run(&[key('#')]) {
             KeyAction::SearchWordBackward => {}
             other => panic!("expected SearchWordBackward, got {:?}", other),
+        }
+        match run(&[key('g'), key('*')]) {
+            KeyAction::SearchWordForwardAnywhere => {}
+            other => panic!("expected SearchWordForwardAnywhere, got {:?}", other),
+        }
+        match run(&[key('g'), key('#')]) {
+            KeyAction::SearchWordBackwardAnywhere => {}
+            other => panic!("expected SearchWordBackwardAnywhere, got {:?}", other),
         }
         match run(&[key('g'), key('n')]) {
             KeyAction::SearchSelectNext(1) => {}

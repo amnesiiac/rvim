@@ -5,6 +5,9 @@ use crate::input::Motion;
 fn rendered_tilde_count(content: &str, wrap: bool) -> usize {
     let mut editor = Editor::default();
     editor.set_size(80, 12);
+    // The tilde is the observable for end-of-buffer rows; rich mode renders
+    // them blank, so these probes pin minimal mode.
+    editor.settings.ui.style = Some(crate::config::UiStyle::Minimal);
     editor.settings.editor.wrap = wrap;
     editor.settings.editor.wrap_width = 80;
     editor.replace_buffer_content(content);

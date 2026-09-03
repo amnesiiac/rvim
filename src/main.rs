@@ -370,16 +370,47 @@ fn main() -> anyhow::Result<()> {
             }
         };
     }
+    // Metrics go to the always-on flight recorder only; when NEVI_PROFILE=1,
+    // drain_profile_metrics! copies new events into PerfStats and the log file.
+    // Editor-internal code records the same way (editor.flight_recorder.record),
+    // so deep metrics like syntax_parse reach the profile summary too.
     macro_rules! record_metric {
         ($editor:expr, $stats:expr, $file:expr, $name:literal, $duration:expr) => {{
-            let elapsed = $duration;
-            $editor.flight_recorder.record($name, elapsed);
+            $editor.flight_recorder.record($name, $duration);
+        }};
+    }
+    // Copy flight-recorder events newer than `$seq` into the profile stats and
+    // log, then advance `$seq`. The ring can wrap within one long operation
+    // (e.g. thousands of syntax_parse events from a single gg=G), so report
+    // the gap instead of silently undercounting.
+    macro_rules! drain_profile_metrics {
+        ($editor:expr, $stats:expr, $file:expr, $seq:expr) => {{
             if profile_enabled {
-                if let Some(ref mut stats) = $stats {
-                    stats.record($name, elapsed);
+                let first_retained = $editor.flight_recorder.events().next().map(|e| e.sequence);
+                if let Some(first) = first_retained {
+                    if first > $seq {
+                        if let Some(Some(ref mut f)) = $file {
+                            let _ =
+                                writeln!(f, "# {} events dropped by ring overflow", first - $seq);
+                        }
+                    }
                 }
-                if let Some(Some(ref mut f)) = $file {
-                    let _ = writeln!(f, "{}: {:?}", $name, elapsed);
+                for event in $editor.flight_recorder.events() {
+                    if event.sequence < $seq {
+                        continue;
+                    }
+                    let elapsed = std::time::Duration::from_micros(event.duration_us as u64);
+                    if let Some(ref mut stats) = $stats {
+                        stats.record(event.name, elapsed);
+                    }
+                    if let Some(Some(ref mut f)) = $file {
+                        let _ = writeln!(f, "{}: {:?}", event.name, elapsed);
+                    }
+                }
+                // The exit-path drain's bump is never read again; that's fine.
+                #[allow(unused_assignments)]
+                {
+                    $seq = $editor.flight_recorder.next_sequence();
                 }
             }
         }};
@@ -402,6 +433,16 @@ fn main() -> anyhow::Result<()> {
 
     // Initialize editor with settings
     let mut editor = Editor::new(settings);
+
+    // Profiling drains the flight recorder into PerfStats each loop iteration,
+    // but a single long operation (gg=G emits one syntax_parse per line) can
+    // outrun the default 2048-event ring before the drain runs. Give profiling
+    // sessions enough headroom that per-event counts stay exact (~3MB).
+    if profile_enabled {
+        editor.flight_recorder = nevi::perf::FlightRecorder::with_capacity(65_536);
+    }
+    // First flight-recorder sequence not yet drained into the profile log.
+    let mut profiled_metric_seq: u64 = 0;
 
     // Restore persisted session state (macros, registers, marks, search
     // history). A missing or corrupt file loads as empty state.
@@ -518,6 +559,10 @@ fn main() -> anyhow::Result<()> {
     // Servers are started lazily when files of that type are opened
     let mut multi_lsp: Option<MultiLspManager> = None;
     let mut lsp_current_file: Option<PathBuf> = None; // Track which file LSP knows about
+    // Buffer version the LSP last received (did_open or did_change) for
+    // lsp_current_file. Changes are sent once per loop iteration, not per
+    // keystroke; this survives skipped iterations so no edit is ever lost.
+    let mut lsp_synced_version: Option<u64> = None;
 
     if lsp_enabled {
         // Collect configured root markers so workspace detection is not Cargo-only.
@@ -601,6 +646,8 @@ fn main() -> anyhow::Result<()> {
     let copilot_debounce = Duration::from_millis(150);
     let mut copilot_last_request: Option<Instant> = None;
     let mut copilot_current_file: Option<PathBuf> = None; // Track which file Copilot knows about
+    // Same batching contract as lsp_synced_version, for Copilot.
+    let mut copilot_synced_version: Option<u64> = None;
 
     let debounce = Duration::from_millis(200);
     let poll_timeout = Duration::from_millis(16);
@@ -641,6 +688,11 @@ fn main() -> anyhow::Result<()> {
 
     // Setup is done; freeze the start screen's "ready in Nms" number here.
     editor.startup_ready_ms = Some(process_start.elapsed().as_millis());
+    profile!(
+        profile_file,
+        "startup_ready_ms: {}",
+        process_start.elapsed().as_millis()
+    );
 
     // Main event loop
     let mut loop_start = Instant::now();
@@ -1092,6 +1144,7 @@ fn main() -> anyhow::Result<()> {
                                         editor.set_lsp_status(format!("LSP: open error: {}", e));
                                     } else {
                                         lsp_current_file = Some(new_path.clone());
+                                        lsp_synced_version = Some(editor.buffer().version());
                                     }
                                 }
                             } else {
@@ -1125,6 +1178,7 @@ fn main() -> anyhow::Result<()> {
                                     .map(|l| l.as_lsp_id().to_string())
                                     .unwrap_or_else(|| "plaintext".to_string());
                                     let _ = cop.did_open(&uri, &lang_id, version, &text);
+                                    copilot_synced_version = Some(editor.buffer().version());
                                 }
                                 // Only update tracking when we actually sent did_open
                                 copilot_current_file = copilot_file;
@@ -1144,45 +1198,12 @@ fn main() -> anyhow::Result<()> {
                         // Clone path once for reuse in LSP and Copilot notifications
                         let current_buffer_path = editor.buffer().path.clone();
 
-                        // Send document change to LSP (only if ready for this file type)
-                        if let Some(ref mut mlsp) = multi_lsp {
-                            if let Some(ref path) = current_buffer_path {
-                                if mlsp.is_ready_for_file(path) {
-                                    let t_lsp = Instant::now();
-                                    let text = editor.buffer().content();
-                                    profile!(
-                                        profile_file,
-                                        "buffer.content() for LSP: {:?}",
-                                        t_lsp.elapsed()
-                                    );
-                                    let t_send = Instant::now();
-                                    let _ = mlsp.did_change(path, &text);
-                                    profile!(
-                                        profile_file,
-                                        "mlsp.did_change: {:?}",
-                                        t_send.elapsed()
-                                    );
-                                }
-                            }
-                        }
+                        // did_change is NOT sent here. Changes are batched and
+                        // sent once per loop iteration (see the sync block
+                        // after input handling), so a coalesced burst of
+                        // keystrokes serializes the document once, not once
+                        // per key.
 
-                        // Send document change to Copilot
-                        if let Some(ref mut cop) = copilot {
-                            if cop.status == CopilotStatus::Ready {
-                                if let Some(ref path) = current_buffer_path {
-                                    let t_cop = Instant::now();
-                                    let uri = lsp::path_to_uri(path);
-                                    let text = editor.buffer().content();
-                                    let version = editor.buffer().version() as i32;
-                                    let _ = cop.did_change(&uri, version, &text);
-                                    profile!(
-                                        profile_file,
-                                        "copilot.did_change: {:?}",
-                                        t_cop.elapsed()
-                                    );
-                                }
-                            }
-                        }
                         // Continue LSP triggers
                         if let Some(ref mut mlsp) = multi_lsp {
                             if let Some(ref path) = current_buffer_path {
@@ -1325,23 +1346,6 @@ fn main() -> anyhow::Result<()> {
                         }
                     }
 
-                    // Handle isIncomplete: re-request completions if filter text changed
-                    if editor.needs_completion_refresh {
-                        editor.needs_completion_refresh = false;
-                        if let Some(ref mut mlsp) = multi_lsp {
-                            if let Some(path) = editor.buffer().path.clone() {
-                                if mlsp.is_ready_for_file(&path) {
-                                    let _ = mlsp.completion(
-                                        &path,
-                                        editor.cursor.line as u32,
-                                        editor_lsp_cursor_col(&editor),
-                                        editor.buffer().version(),
-                                    );
-                                }
-                            }
-                        }
-                    }
-
                     editor.maybe_update_syntax();
                     needs_redraw = true;
                     redraw_from_input = true;
@@ -1367,6 +1371,75 @@ fn main() -> anyhow::Result<()> {
                     t_syntax.elapsed()
                 );
                 needs_redraw = true;
+            }
+        }
+
+        // Send buffer changes to LSP and Copilot once per loop iteration
+        // instead of once per keystroke. A coalesced input burst serializes
+        // the document a single time, shared by both consumers. The synced
+        // versions persist across iterations, so a batch skipped by an early
+        // continue is picked up on the next pass and nothing is ever lost.
+        {
+            let doc_version = editor.buffer().version();
+            let doc_path = editor.buffer().path.clone();
+            let mut shared_text: Option<String> = None;
+
+            if let (Some(mlsp), Some(path)) = (multi_lsp.as_mut(), doc_path.as_ref()) {
+                if lsp_current_file.as_deref() == Some(path.as_path())
+                    && lsp_synced_version != Some(doc_version)
+                    && mlsp.is_ready_for_file(path)
+                {
+                    let t_lsp = Instant::now();
+                    let text = shared_text.get_or_insert_with(|| editor.buffer().content());
+                    let _ = mlsp.did_change(path, text);
+                    record_metric!(
+                        editor,
+                        profile_stats,
+                        profile_file,
+                        "lsp_did_change",
+                        t_lsp.elapsed()
+                    );
+                    lsp_synced_version = Some(doc_version);
+                }
+            }
+
+            if let (Some(cop), Some(path)) = (copilot.as_mut(), doc_path.as_ref()) {
+                if cop.status == CopilotStatus::Ready
+                    && copilot_current_file.as_deref() == Some(path.as_path())
+                    && copilot_synced_version != Some(doc_version)
+                {
+                    let t_cop = Instant::now();
+                    let uri = lsp::path_to_uri(path);
+                    let text = shared_text.get_or_insert_with(|| editor.buffer().content());
+                    let _ = cop.did_change(&uri, doc_version as i32, text);
+                    record_metric!(
+                        editor,
+                        profile_stats,
+                        profile_file,
+                        "copilot_did_change",
+                        t_cop.elapsed()
+                    );
+                    copilot_synced_version = Some(doc_version);
+                }
+            }
+        }
+
+        // Handle isIncomplete: re-request completions if filter text changed.
+        // Runs after the did_change sync above so the server filters against
+        // the batch's final text, not the previous one.
+        if editor.needs_completion_refresh {
+            editor.needs_completion_refresh = false;
+            if let Some(ref mut mlsp) = multi_lsp {
+                if let Some(path) = editor.buffer().path.clone() {
+                    if mlsp.is_ready_for_file(&path) {
+                        let _ = mlsp.completion(
+                            &path,
+                            editor.cursor.line as u32,
+                            editor_lsp_cursor_col(&editor),
+                            editor.buffer().version(),
+                        );
+                    }
+                }
             }
         }
 
@@ -1401,6 +1474,7 @@ fn main() -> anyhow::Result<()> {
                                         editor.set_lsp_status(format!("LSP: open error: {}", e));
                                     } else {
                                         lsp_current_file = Some(path);
+                                        lsp_synced_version = Some(editor.buffer().version());
                                     }
                                 }
                             }
@@ -1701,6 +1775,9 @@ fn main() -> anyhow::Result<()> {
                                 if let Some(path) = editor.buffer().path.clone() {
                                     let text = editor.buffer().content();
                                     let _ = mlsp.did_change(&path, &text);
+                                    if lsp_current_file.as_ref() == Some(&path) {
+                                        lsp_synced_version = Some(editor.buffer().version());
+                                    }
                                 }
                             }
                             // Clear the pending format flag
@@ -1846,6 +1923,9 @@ fn main() -> anyhow::Result<()> {
                                     if let Some(path) = editor.buffer().path.clone() {
                                         let text = editor.buffer().content();
                                         let _ = mlsp.did_change(&path, &text);
+                                        if lsp_current_file.as_ref() == Some(&path) {
+                                            lsp_synced_version = Some(editor.buffer().version());
+                                        }
                                     }
                                 }
                             }
@@ -1918,6 +1998,7 @@ fn main() -> anyhow::Result<()> {
                                         .unwrap_or_else(|| "plaintext".to_string());
                                         let _ = cop.did_open(&uri, &lang_id, version, &text);
                                         copilot_current_file = Some(path);
+                                        copilot_synced_version = Some(editor.buffer().version());
                                     }
                                 }
                                 AuthStatus::NotSignedIn => {
@@ -2059,7 +2140,42 @@ fn main() -> anyhow::Result<()> {
 
         // Poll for async grep results. The search itself runs off the UI loop;
         // this only applies the newest matching result set when it is ready.
+        // Only batch applications are recorded — an empty poll is nanoseconds
+        // and would drown the flight recorder at one event per loop iteration.
+        let t_grep_poll = Instant::now();
         if editor.finder.poll_grep_search() {
+            record_metric!(
+                editor,
+                profile_stats,
+                profile_file,
+                "grep_poll_apply",
+                t_grep_poll.elapsed()
+            );
+            needs_redraw = true;
+        }
+
+        // Apply async file walk batches. The walk itself runs off the UI
+        // loop; its total duration is recorded when the Finished message
+        // lands so the finder_list_files metric keeps its old meaning.
+        if editor.finder.poll_file_list() {
+            // Newly arrived rows may be visible already; top up their match
+            // highlights (normally done by the finder key handler).
+            editor.ensure_finder_visible_match_indices();
+            needs_redraw = true;
+        }
+        if let Some(walk_duration) = editor.finder.last_file_list_duration.take() {
+            record_metric!(
+                editor,
+                profile_stats,
+                profile_file,
+                "finder_list_files",
+                walk_duration
+            );
+        }
+
+        // Apply a finished background git status scan (explorer markers).
+        // The scan no longer blocks startup, saves, or opening the explorer.
+        if editor.poll_git_state() {
             needs_redraw = true;
         }
 
@@ -2218,8 +2334,11 @@ fn main() -> anyhow::Result<()> {
                 redraw_from_input = false;
             }
         }
+
+        drain_profile_metrics!(editor, profile_stats, profile_file, profiled_metric_seq);
     }
 
+    drain_profile_metrics!(editor, profile_stats, profile_file, profiled_metric_seq);
     if profile_enabled {
         if let (Some(stats), Some(Some(file))) = (profile_stats.as_ref(), profile_file.as_mut()) {
             let _ = stats.write_summary(file);

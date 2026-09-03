@@ -28,7 +28,7 @@
 # ORGANIZATION:
 # Within each category, implemented keybinds are grouped by behavior.
 #
-# Last Updated: 2026-06-22
+# Last Updated: 2026-08-30
 # ============================================================================
 
 # ============================================================================
@@ -54,6 +54,20 @@ vim_default = false
 key = "ZZ"
 action = "write_quit_if_modified"
 desc = "Write if modified and quit"
+status = "implemented"
+vim_default = true
+
+[[normal.file]]
+key = "ZQ"
+action = "force_quit"
+desc = "Quit without saving"
+status = "implemented"
+vim_default = true
+
+[[normal.file]]
+key = "<C-^>"
+action = "alternate_buffer"
+desc = "Switch to the alternate buffer"
 status = "implemented"
 vim_default = true
 
@@ -561,6 +575,20 @@ status = "implemented"
 vim_default = true
 
 [[normal.editing]]
+key = "<C-a>"
+action = "add_to_number"
+desc = "Add count to the number at or after the cursor"
+status = "implemented"
+vim_default = true
+
+[[normal.editing]]
+key = "<C-x>"
+action = "subtract_from_number"
+desc = "Subtract count from the number at or after the cursor"
+status = "implemented"
+vim_default = true
+
+[[normal.editing]]
 key = "."
 action = "repeat_last_change"
 desc = "Repeat last change"
@@ -815,6 +843,20 @@ vim_default = true
 key = "*"
 action = "search_word_forward"
 desc = "Search word under cursor forward"
+status = "implemented"
+vim_default = true
+
+[[normal.search]]
+key = "g*"
+action = "search_word_forward_anywhere"
+desc = "Search word under cursor forward, also inside longer words"
+status = "implemented"
+vim_default = true
+
+[[normal.search]]
+key = "g#"
+action = "search_word_backward_anywhere"
+desc = "Search word under cursor backward, also inside longer words"
 status = "implemented"
 vim_default = true
 
@@ -1409,6 +1451,55 @@ locked = true
 key = "d"
 action = "delete_selection"
 desc = "Delete selection"
+status = "implemented"
+vim_default = true
+
+[[visual.editing]]
+key = "gu"
+action = "lowercase_selection"
+desc = "Lowercase selection"
+status = "implemented"
+vim_default = true
+
+[[visual.editing]]
+key = "gU"
+action = "uppercase_selection"
+desc = "Uppercase selection"
+status = "implemented"
+vim_default = true
+
+[[visual.editing]]
+key = "g~"
+action = "toggle_case_selection"
+desc = "Toggle case of selection"
+status = "implemented"
+vim_default = true
+
+[[visual.editing]]
+key = "r"
+action = "replace_selection_chars"
+desc = "Replace every selected character with the next key"
+status = "implemented"
+vim_default = true
+
+[[visual.editing]]
+key = "J"
+action = "join_selection"
+desc = "Join the selected lines with spaces"
+status = "implemented"
+vim_default = true
+
+[[visual.editing]]
+key = "gJ"
+action = "join_selection_no_space"
+desc = "Join the selected lines without spaces"
+status = "implemented"
+vim_default = true
+
+[[visual.editing]]
+key = "="
+action = "auto_indent_selection"
+desc = "Re-indent the selected lines"
 status = "implemented"
 vim_default = true
 
@@ -2585,3 +2676,241 @@ action = "delmarks_all"
 desc = "Delete all lowercase marks (a-z) in current buffer"
 status = "implemented"
 vim_default = true
+
+# ============================================================================
+# CHEATSHEET SYNC BACKFILL
+# Rows added when the sync test (finder::keybinds cheatsheet_covers_...)
+# was introduced. Keep new keybinds in their natural sections above; these
+# live here so the 2026-08 backfill is easy to audit.
+# ============================================================================
+
+[[normal.movement]]
+key = "g_"
+action = "last_non_blank"
+desc = "Last non-blank character (count moves lines down)"
+status = "implemented"
+vim_default = true
+
+[[normal.movement]]
+key = "|"
+action = "to_column"
+desc = "Move to column [count]"
+status = "implemented"
+vim_default = true
+
+[[normal.movement]]
+key = "gM"
+action = "middle_of_line"
+desc = "Middle of the line's text (count is a percentage)"
+status = "implemented"
+vim_default = true
+
+[[normal.movement]]
+key = "gm"
+action = "middle_of_screen_line"
+desc = "Middle of the screen line"
+status = "implemented"
+vim_default = true
+
+[[normal.movement]]
+key = "go"
+action = "goto_byte"
+desc = "Go to byte [count] of the file"
+status = "implemented"
+vim_default = true
+
+[[normal.movement]]
+key = "[["
+action = "section_backward"
+desc = "Previous section start ({ in column 0)"
+status = "implemented"
+vim_default = true
+
+[[normal.movement]]
+key = "]]"
+action = "section_forward"
+desc = "Next section start ({ in column 0)"
+status = "implemented"
+vim_default = true
+
+[[normal.movement]]
+key = "[]"
+action = "section_end_backward"
+desc = "Previous section end (} in column 0)"
+status = "implemented"
+vim_default = true
+
+[[normal.movement]]
+key = "]["
+action = "section_end_forward"
+desc = "Next section end (} in column 0)"
+status = "implemented"
+vim_default = true
+
+[[normal.movement]]
+key = "[{"
+action = "unmatched_open_brace"
+desc = "Previous unmatched { (out of the enclosing block)"
+status = "implemented"
+vim_default = true
+
+[[normal.movement]]
+key = "]}"
+action = "unmatched_close_brace"
+desc = "Next unmatched } (out of the enclosing block)"
+status = "implemented"
+vim_default = true
+
+[[normal.movement]]
+key = "[("
+action = "unmatched_open_paren"
+desc = "Previous unmatched ("
+status = "implemented"
+vim_default = true
+
+[[normal.movement]]
+key = "])"
+action = "unmatched_close_paren"
+desc = "Next unmatched )"
+status = "implemented"
+vim_default = true
+
+[[normal.movement]]
+key = "[m"
+action = "method_start_backward"
+desc = "Previous method/function start (tree-sitter)"
+status = "implemented"
+vim_default = true
+
+[[normal.movement]]
+key = "]m"
+action = "method_start_forward"
+desc = "Next method/function start (tree-sitter)"
+status = "implemented"
+vim_default = true
+
+[[normal.movement]]
+key = "[M"
+action = "method_end_backward"
+desc = "Previous method/function end (tree-sitter)"
+status = "implemented"
+vim_default = true
+
+[[normal.movement]]
+key = "]M"
+action = "method_end_forward"
+desc = "Next method/function end (tree-sitter)"
+status = "implemented"
+vim_default = true
+
+[[normal.scroll]]
+key = "<C-y>"
+action = "scroll_line_up"
+desc = "Scroll view up one line (cursor stays put)"
+status = "implemented"
+vim_default = true
+
+[[normal.editing]]
+key = "s"
+action = "substitute_char"
+desc = "Substitute character(s) under cursor and insert"
+status = "implemented"
+vim_default = true
+
+[[normal.surround]]
+key = "yss"
+action = "surround_line"
+desc = "Add surrounding pair around current line"
+status = "implemented"
+vim_default = false
+
+[[normal.window]]
+key = "<C-w>W"
+action = "window_prev"
+desc = "Move to previous window"
+status = "implemented"
+vim_default = true
+
+[[normal.window]]
+key = "<C-w>+"
+action = "window_taller"
+desc = "Increase current split height"
+status = "implemented"
+vim_default = true
+
+[[terminal]]
+key = "<C-S-T>"
+action = "terminal_new_session"
+desc = "New terminal session"
+status = "implemented"
+vim_default = false
+
+[[terminal]]
+key = "<C-Tab>"
+action = "terminal_next_session"
+desc = "Next terminal session"
+status = "implemented"
+vim_default = false
+
+[[terminal]]
+key = "<C-S-Tab>"
+action = "terminal_prev_session"
+desc = "Previous terminal session"
+status = "implemented"
+vim_default = false
+
+[[terminal]]
+key = "<C-S-W>"
+action = "terminal_close_session"
+desc = "Close current terminal session"
+status = "implemented"
+vim_default = false
+
+[[terminal]]
+key = "<C-S-C>"
+action = "terminal_copy_selection"
+desc = "Copy the current terminal selection"
+status = "implemented"
+vim_default = false
+
+[[terminal]]
+key = "<D-C>"
+action = "terminal_copy_selection"
+desc = "Copy terminal selection (when the outer terminal forwards Cmd+C)"
+status = "implemented"
+vim_default = false
+
+[[finder.mode]]
+key = "<C-c>"
+action = "finder_close"
+desc = "Close finder"
+status = "implemented"
+vim_default = false
+
+[[cmdline.editing]]
+key = "<A-r>"
+action = "toggle_history_window"
+desc = "Toggle command history window"
+status = "implemented"
+vim_default = false
+
+[[cmdline.editing]]
+key = "<S-Tab>"
+action = "completion_prev"
+desc = "Accept previous completion"
+status = "implemented"
+vim_default = false
+
+[[cmdline.editing]]
+key = "<C-n>"
+action = "popup_next"
+desc = "Select next popup item"
+status = "implemented"
+vim_default = false
+
+[[cmdline.editing]]
+key = "<C-p>"
+action = "popup_prev"
+desc = "Select previous popup item"
+status = "implemented"
+vim_default = false

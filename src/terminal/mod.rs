@@ -2176,10 +2176,11 @@ impl Terminal {
             terminal_print!(self, "  "); // Empty sign column
 
             execute!(self.stdout, SetForegroundColor(Color::Blue))?;
+            let eob = editor.ui_glyphs().eob;
             if show_line_numbers {
-                terminal_print!(self, "{:>width$} ~", "", width = line_num_width);
+                terminal_print!(self, "{:>width$} {}", "", eob, width = line_num_width);
             } else {
-                terminal_print!(self, "~");
+                terminal_print!(self, "{}", eob);
             }
             execute!(self.stdout, SetForegroundColor(editor_fg))?;
 
@@ -2594,10 +2595,11 @@ impl Terminal {
                 terminal_print!(self, "  "); // Empty sign column
 
                 execute!(self.stdout, SetForegroundColor(Color::Blue))?;
+                let eob = editor.ui_glyphs().eob;
                 if show_line_numbers {
-                    terminal_print!(self, "{:>width$} ~", "", width = line_num_width);
+                    terminal_print!(self, "{:>width$} {}", "", eob, width = line_num_width);
                 } else {
-                    terminal_print!(self, "~");
+                    terminal_print!(self, "{}", eob);
                 }
                 execute!(
                     self.stdout,
@@ -7669,11 +7671,12 @@ fn handle_normal_mode(editor: &mut Editor, key: KeyEvent) {
             match pos {
                 InsertPosition::AtCursor => editor.enter_insert_mode(),
                 InsertPosition::AfterCursor => editor.enter_insert_mode_append(),
-                InsertPosition::LineStart => editor.enter_insert_mode_start_counted(count),
-                InsertPosition::LineEnd => editor.enter_insert_mode_end_counted(count),
-                InsertPosition::NewLineBelow => editor.open_line_below_counted(count),
-                InsertPosition::NewLineAbove => editor.open_line_above_counted(count),
+                InsertPosition::LineStart => editor.enter_insert_mode_start(),
+                InsertPosition::LineEnd => editor.enter_insert_mode_end(),
+                InsertPosition::NewLineBelow => editor.open_line_below(),
+                InsertPosition::NewLineAbove => editor.open_line_above(),
             }
+            editor.set_insert_repeat_count(count);
             let action_elapsed = t_action.elapsed();
             let total = t_start.elapsed();
             if total.as_micros() > 1000 {
@@ -7780,6 +7783,18 @@ fn handle_normal_mode(editor: &mut Editor, key: KeyEvent) {
             editor.scroll_pane_viewport(editor.active_pane_idx(), count as isize);
         }
 
+        KeyAction::AddToNumber(delta) => {
+            editor.add_to_number_at_cursor(delta);
+        }
+
+        KeyAction::ForceQuit => {
+            execute_command(editor, Command::ForceQuit);
+        }
+
+        KeyAction::AlternateBuffer => {
+            editor.switch_to_alternate_buffer();
+        }
+
         KeyAction::ScrollLineUp(count) => {
             let delta = -(count.min(isize::MAX as usize) as isize);
             editor.scroll_pane_viewport(editor.active_pane_idx(), delta);
@@ -7801,12 +7816,12 @@ fn handle_normal_mode(editor: &mut Editor, key: KeyEvent) {
             editor.enter_search_backward();
         }
 
-        KeyAction::SearchNext => {
-            editor.search_next();
+        KeyAction::SearchNext(count) => {
+            editor.search_next(count);
         }
 
-        KeyAction::SearchPrev => {
-            editor.search_prev();
+        KeyAction::SearchPrev(count) => {
+            editor.search_prev(count);
         }
 
         KeyAction::SearchWordForward => {
@@ -7815,6 +7830,14 @@ fn handle_normal_mode(editor: &mut Editor, key: KeyEvent) {
 
         KeyAction::SearchWordBackward => {
             editor.search_word_backward();
+        }
+
+        KeyAction::SearchWordForwardAnywhere => {
+            editor.search_word_forward_anywhere();
+        }
+
+        KeyAction::SearchWordBackwardAnywhere => {
+            editor.search_word_backward_anywhere();
         }
 
         KeyAction::SearchSelectNext(count) => {
@@ -8268,6 +8291,15 @@ fn handle_insert_mode(editor: &mut Editor, key: KeyEvent) {
     let buffer_version_before = editor.buffer().version();
     let had_visible_search_matches = !editor.search_matches.is_empty();
 
+    // Vim inserts the key after <C-v> without mapping, so take it before remap.
+    if editor.pending_insert_literal {
+        editor.pending_insert_literal = false;
+        if let Some(ch) = command_literal_char(key) {
+            editor.insert_char(ch);
+        }
+        return;
+    }
+
     // Apply custom keymap remapping for insert mode
     let key = editor.keymap.remap_insert(key);
 
@@ -8459,6 +8491,14 @@ fn handle_insert_mode(editor: &mut Editor, key: KeyEvent) {
             editor.pending_insert_register = true;
         }
 
+        // Insert the next key literally (Ctrl+v, or Vim's Ctrl+q alias).
+        // Digit/unicode entry (<C-v>123, <C-v>u1f600) is not supported, same
+        // as the command-line <C-v>.
+        (KeyModifiers::CONTROL, KeyCode::Char('v'))
+        | (KeyModifiers::CONTROL, KeyCode::Char('q')) => {
+            editor.pending_insert_literal = true;
+        }
+
         // Execute one normal-mode command, then return to insert mode (Ctrl+o)
         (KeyModifiers::CONTROL, KeyCode::Char('o')) => {
             editor.enter_insert_normal_once();
@@ -8508,8 +8548,14 @@ fn handle_insert_mode(editor: &mut Editor, key: KeyEvent) {
             }
         }
 
-        // Regular character - accept any modifier for printable chars
-        (_, KeyCode::Char(c)) if !c.is_control() => {
+        // Regular character. SHIFT and AltGr (reported as CONTROL|ALT on some
+        // terminals) still type their character, but a bare CONTROL chord is a
+        // command key: unhandled ones must not fall through and type the raw
+        // letter (Vim treats unmapped insert-mode ctrl keys as no-ops).
+        (mods, KeyCode::Char(c))
+            if !c.is_control()
+                && (!mods.contains(KeyModifiers::CONTROL) || mods.contains(KeyModifiers::ALT)) =>
+        {
             if editor.settings.editor.auto_pairs {
                 // Auto-pairs: skip over closing pair if next char is the same
                 let next_char = editor
@@ -9144,9 +9190,32 @@ fn handle_visual_mode(editor: &mut Editor, key: KeyEvent) {
         return;
     }
 
-    // Handle gc for comment toggle (after g was pressed)
+    // r{char}: any other key cancels, like Vim.
+    if editor.input_state.pending_visual_replace {
+        editor.input_state.pending_visual_replace = false;
+        if let KeyCode::Char(c) = key.code {
+            editor.replace_visual_selection(c);
+        }
+        return;
+    }
+
+    // Handle g-prefixed keys (after g was pressed): gc, gu, gU, g~, gJ, gg
     if editor.input_state.pending_comment {
         editor.input_state.pending_comment = false;
+        let case_op = match key.code {
+            KeyCode::Char('u') => Some(crate::input::CaseOperator::Lowercase),
+            KeyCode::Char('U') => Some(crate::input::CaseOperator::Uppercase),
+            KeyCode::Char('~') => Some(crate::input::CaseOperator::ToggleCase),
+            _ => None,
+        };
+        if let Some(op) = case_op {
+            editor.case_visual(op);
+            return;
+        }
+        if matches!(key.code, KeyCode::Char('J')) {
+            editor.join_visual(false);
+            return;
+        }
         if matches!(key.code, KeyCode::Char('c')) {
             // gc in visual mode - toggle comments on selection
             let (start_line, _, end_line, _) = editor.get_visual_range();
@@ -9369,18 +9438,26 @@ fn handle_visual_mode(editor: &mut Editor, key: KeyEvent) {
             editor.enter_normal_mode();
         }
 
-        // Case transformation on selection
+        // Case transformation on selection. These operators leave visual
+        // mode themselves so the cursor lands where Vim puts it.
         (KeyModifiers::NONE, KeyCode::Char('u')) => {
             editor.case_visual(crate::input::CaseOperator::Lowercase);
-            editor.enter_normal_mode();
         }
         (KeyModifiers::SHIFT, KeyCode::Char('U')) => {
             editor.case_visual(crate::input::CaseOperator::Uppercase);
-            editor.enter_normal_mode();
         }
         (KeyModifiers::SHIFT, KeyCode::Char('~')) | (KeyModifiers::NONE, KeyCode::Char('~')) => {
             editor.case_visual(crate::input::CaseOperator::ToggleCase);
-            editor.enter_normal_mode();
+        }
+
+        (KeyModifiers::NONE, KeyCode::Char('r')) => {
+            editor.input_state.pending_visual_replace = true;
+        }
+        (KeyModifiers::SHIFT, KeyCode::Char('J')) => {
+            editor.join_visual(true);
+        }
+        (_, KeyCode::Char('=')) => {
+            editor.auto_indent_visual();
         }
 
         _ => {}
@@ -9744,14 +9821,23 @@ fn handle_finder_mode(editor: &mut Editor, key: KeyEvent) {
 
         // Backspace
         (KeyModifiers::NONE, KeyCode::Backspace) => {
+            // finder_filter times the query edit + the full re-filter it triggers.
+            let started = Instant::now();
             editor.finder.delete_char_before();
+            editor
+                .flight_recorder
+                .record("finder_filter", started.elapsed());
             selection_changed = true; // Filter might have changed selection
         }
 
         // Regular character - insert mode types, normal mode switches to insert first
         (_, KeyCode::Char(c)) if !c.is_control() => {
             // insert_char already switches to insert mode if needed
+            let started = Instant::now();
             editor.finder.insert_char(c);
+            editor
+                .flight_recorder
+                .record("finder_filter", started.elapsed());
             selection_changed = true; // Filter might have changed selection
         }
 
@@ -9763,6 +9849,9 @@ fn handle_finder_mode(editor: &mut Editor, key: KeyEvent) {
     if selection_changed && editor.finder.preview_enabled && editor.finder.mode_supports_preview() {
         editor.finder.preview_update_pending = true;
     }
+
+    // Filtering skips highlight-index work; top up the rows about to render.
+    editor.ensure_finder_visible_match_indices();
 
     log_finder_profile(&format!(
         "handle_finder: {:?} key={:?}",
@@ -10300,6 +10389,23 @@ fn rename_file_impl(
     }
 }
 
+/// Shared tail of `:q!`, `:wq`, `:x`, and `ZZ`, Vim's window-close rule: in a
+/// split only the pane goes; on the last pane exiting needs every buffer
+/// accounted for, so a buffer that still has unsaved changes is shown with
+/// Vim's E162 message instead. Only `:qa!` discards everything.
+fn close_pane_or_quit(editor: &mut Editor) -> CommandResult {
+    if editor.panes().len() > 1 {
+        editor.close_pane();
+        return CommandResult::Ok;
+    }
+    match editor.show_first_other_modified_buffer() {
+        Some(name) => {
+            CommandResult::Error(format!("No write since last change for buffer \"{name}\""))
+        }
+        None => CommandResult::Quit,
+    }
+}
+
 fn execute_command(editor: &mut Editor, cmd: Command) {
     let result = match cmd {
         Command::Write(path) => {
@@ -10419,20 +10525,12 @@ fn execute_command(editor: &mut Editor, cmd: Command) {
             }
         }
 
-        Command::ForceQuit => {
-            // If multiple panes, close just the active pane
-            if editor.panes().len() > 1 {
-                editor.close_pane();
-                CommandResult::Ok
-            } else {
-                CommandResult::Quit
-            }
-        }
+        Command::ForceQuit => close_pane_or_quit(editor),
 
         Command::WriteQuit => {
             if editor.buffer().path.is_some() {
                 match editor.save() {
-                    Ok(()) => CommandResult::Quit,
+                    Ok(()) => close_pane_or_quit(editor),
                     Err(e) => CommandResult::Error(format!("Error saving: {}", e)),
                 }
             } else {
@@ -10444,14 +10542,14 @@ fn execute_command(editor: &mut Editor, cmd: Command) {
             if editor.has_unsaved_changes() {
                 if editor.buffer().path.is_some() {
                     match editor.save() {
-                        Ok(()) => CommandResult::Quit,
+                        Ok(()) => close_pane_or_quit(editor),
                         Err(e) => CommandResult::Error(format!("Error saving: {}", e)),
                     }
                 } else {
                     CommandResult::Error("No filename".to_string())
                 }
             } else {
-                CommandResult::Quit
+                close_pane_or_quit(editor)
             }
         }
 
@@ -11610,6 +11708,26 @@ mod tests {
         assert!(
             rendered.contains("\u{f057} 1"),
             "dir and file rows show the error rollup badge; output={rendered:?}"
+        );
+    }
+
+    #[test]
+    fn end_of_buffer_filler_follows_ui_style() {
+        let mut editor = Editor::default();
+        editor.set_size(40, 10);
+        editor.replace_buffer_content("only line\n");
+
+        let rendered = render_editor_to_string(&editor);
+        assert!(
+            !rendered.contains('~'),
+            "rich mode hides end-of-buffer tildes; output={rendered:?}"
+        );
+
+        editor.settings.ui.style = Some(crate::config::UiStyle::Minimal);
+        let rendered = render_editor_to_string(&editor);
+        assert!(
+            rendered.contains('~'),
+            "minimal mode keeps end-of-buffer tildes; output={rendered:?}"
         );
     }
 
@@ -14182,6 +14300,128 @@ mod tests {
     }
 
     #[test]
+    fn insert_ctrl_v_inserts_next_control_key_literally() {
+        let mut editor = Editor::default();
+        editor.replace_buffer_content("\n");
+        handle_key(&mut editor, key('i'));
+
+        handle_key(&mut editor, ctrl_key('v'));
+        handle_key(&mut editor, ctrl_key('y'));
+        handle_key(&mut editor, esc_key());
+
+        assert_eq!(editor.mode, Mode::Normal);
+        assert_eq!(editor.buffer().content(), "\u{19}\n");
+    }
+
+    #[test]
+    fn insert_ctrl_v_esc_inserts_literal_escape_and_stays_in_insert() {
+        let mut editor = Editor::default();
+        editor.replace_buffer_content("\n");
+        handle_key(&mut editor, key('i'));
+        handle_key(&mut editor, key('A'));
+
+        handle_key(&mut editor, ctrl_key('v'));
+        handle_key(&mut editor, esc_key());
+        assert_eq!(editor.mode, Mode::Insert);
+
+        handle_key(&mut editor, key('B'));
+        handle_key(&mut editor, esc_key());
+
+        assert_eq!(editor.mode, Mode::Normal);
+        assert_eq!(editor.buffer().content(), "A\u{1b}B\n");
+    }
+
+    #[test]
+    fn insert_ctrl_v_literal_bypasses_auto_pairs() {
+        let mut editor = Editor::default();
+        editor.replace_buffer_content("\n");
+        assert!(editor.settings.editor.auto_pairs);
+        handle_key(&mut editor, key('i'));
+
+        handle_key(&mut editor, ctrl_key('v'));
+        handle_key(&mut editor, key('('));
+        handle_key(&mut editor, esc_key());
+
+        assert_eq!(editor.buffer().content(), "(\n");
+    }
+
+    #[test]
+    fn insert_ctrl_q_aliases_ctrl_v_literal_insert() {
+        let mut editor = Editor::default();
+        editor.replace_buffer_content("\n");
+        handle_key(&mut editor, key('i'));
+
+        handle_key(&mut editor, ctrl_key('q'));
+        handle_key(&mut editor, ctrl_key('u'));
+        handle_key(&mut editor, esc_key());
+
+        assert_eq!(editor.buffer().content(), "\u{15}\n");
+    }
+
+    #[test]
+    fn insert_unhandled_ctrl_chord_does_not_type_its_letter() {
+        // Issue #281: i<C-v><C-y> wrote "vy" because unhandled ctrl chords
+        // fell through to the plain-character arm.
+        let mut editor = Editor::default();
+        editor.replace_buffer_content("\n");
+        handle_key(&mut editor, key('i'));
+        handle_key(&mut editor, key('A'));
+
+        handle_key(&mut editor, ctrl_key('g'));
+        handle_key(&mut editor, key('B'));
+        handle_key(&mut editor, esc_key());
+
+        assert_eq!(editor.mode, Mode::Normal);
+        assert_eq!(editor.buffer().content(), "AB\n");
+    }
+
+    #[test]
+    fn insert_ctrl_v_takes_key_before_insert_remaps() {
+        // Vim inserts the key after ctrl-v without mapping, so a user's
+        // escape-style insert remap must not fire on it.
+        let mut settings = Settings::default();
+        settings.keymap.insert.push(KeymapEntry {
+            from: "j".to_string(),
+            to: "<Esc>".to_string(),
+        });
+        let mut editor = Editor::new(settings);
+        editor.replace_buffer_content("\n");
+
+        // Sanity: the remap is active - a plain j leaves insert mode.
+        handle_key(&mut editor, key('i'));
+        handle_key(&mut editor, key('j'));
+        assert_eq!(editor.mode, Mode::Normal);
+
+        handle_key(&mut editor, key('i'));
+        handle_key(&mut editor, ctrl_key('v'));
+        handle_key(&mut editor, key('j'));
+        assert_eq!(editor.mode, Mode::Insert);
+        handle_key(&mut editor, esc_key());
+
+        assert_eq!(editor.buffer().content(), "j\n");
+    }
+
+    #[test]
+    fn insert_altgr_control_alt_chord_still_types_its_char() {
+        // AltGr chars arrive as CONTROL|ALT on some terminals; they must keep
+        // typing even though bare CONTROL chords no longer fall through.
+        let mut editor = Editor::default();
+        editor.replace_buffer_content("\n");
+        handle_key(&mut editor, key('i'));
+
+        handle_key(
+            &mut editor,
+            KeyEvent::new(
+                KeyCode::Char('@'),
+                KeyModifiers::CONTROL | KeyModifiers::ALT,
+            ),
+        );
+        handle_key(&mut editor, esc_key());
+
+        assert_eq!(editor.buffer().content(), "@\n");
+    }
+
+    #[test]
     fn command_ctrl_k_inserts_vim_digraph() {
         let mut editor = Editor::default();
         editor.enter_command_mode_with_input("echo ");
@@ -15315,6 +15555,33 @@ mod tests {
     }
 
     #[test]
+    fn visual_equals_reindents_selection_like_double_equals() {
+        // `=` on a selection is Nevi's own indenter, the same one `==` uses,
+        // so the check is consistency with `==` rather than a Vim snapshot.
+        let content = "fn main() {\nlet x = 1;\n    let y = 2;\n}\n";
+        let mut reference = Editor::default();
+        reference.replace_buffer_content(content);
+        reference.auto_indent_lines(1, 2);
+
+        let mut editor = Editor::default();
+        editor.replace_buffer_content(content);
+        editor.cursor.line = 1;
+        handle_key(&mut editor, shift_key('V'));
+        handle_key(&mut editor, key('j'));
+        handle_key(&mut editor, key('='));
+
+        assert_eq!(editor.mode, Mode::Normal);
+        assert_eq!(editor.buffer().content(), reference.buffer().content());
+        assert_eq!(editor.cursor.line, 1);
+        let indent_width = reference
+            .buffer()
+            .line(1)
+            .map(|line| line.chars().take_while(|ch| *ch == ' ').count())
+            .unwrap_or(0);
+        assert_eq!(editor.cursor.col, indent_width);
+    }
+
+    #[test]
     fn normal_zz_refuses_dirty_unnamed_buffer_without_quitting() {
         let mut editor = Editor::default();
         editor.replace_buffer_content("scratch edit\n");
@@ -15324,6 +15591,154 @@ mod tests {
 
         assert!(!editor.should_quit);
         assert_eq!(editor.status_message.as_deref(), Some("E: No filename"));
+    }
+
+    #[test]
+    fn normal_zq_quits_without_saving() {
+        let tmp = unique_temp_dir("nevi_normal_zq_quit");
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let path = tmp.join("note.txt");
+        std::fs::write(&path, "original\n").expect("write original");
+
+        let mut editor = Editor::default();
+        editor.open_file(path.clone()).expect("open file");
+        editor.replace_buffer_content("local edit\n");
+
+        handle_key(&mut editor, shift_key('Z'));
+        handle_key(&mut editor, shift_key('Q'));
+
+        assert!(editor.should_quit);
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("read file"),
+            "original\n"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn normal_zq_closes_only_the_active_pane_when_split() {
+        let mut editor = Editor::default();
+        editor.replace_buffer_content("scratch\n");
+        editor.vsplit(None).expect("split");
+        assert_eq!(editor.panes().len(), 2);
+
+        handle_key(&mut editor, shift_key('Z'));
+        handle_key(&mut editor, shift_key('Q'));
+
+        assert!(!editor.should_quit);
+        assert_eq!(editor.panes().len(), 1);
+    }
+
+    #[test]
+    fn normal_ctrl_caret_toggles_between_the_last_two_buffers() {
+        let tmp = unique_temp_dir("nevi_alternate_buffer");
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let first = tmp.join("first.txt");
+        let second = tmp.join("second.txt");
+        std::fs::write(&first, "first\n").expect("write first");
+        std::fs::write(&second, "second\n").expect("write second");
+
+        let mut editor = Editor::default();
+        editor.open_file(first.clone()).expect("open first");
+        editor.open_file(second.clone()).expect("open second");
+        assert_eq!(editor.buffer().path.as_deref(), Some(second.as_path()));
+
+        handle_key(&mut editor, ctrl_key('^'));
+        assert_eq!(editor.buffer().path.as_deref(), Some(first.as_path()));
+
+        handle_key(&mut editor, ctrl_key('^'));
+        assert_eq!(editor.buffer().path.as_deref(), Some(second.as_path()));
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn normal_ctrl_caret_reopens_a_closed_alternate() {
+        let tmp = unique_temp_dir("nevi_alternate_buffer_reopen");
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let first = tmp.join("first.txt");
+        let second = tmp.join("second.txt");
+        std::fs::write(&first, "first\n").expect("write first");
+        std::fs::write(&second, "second\n").expect("write second");
+
+        let mut editor = Editor::default();
+        editor.open_file(first.clone()).expect("open first");
+        editor.open_file(second.clone()).expect("open second");
+        editor.close_current_buffer();
+        assert_eq!(editor.buffer().path.as_deref(), Some(first.as_path()));
+
+        handle_key(&mut editor, ctrl_key('^'));
+
+        assert_eq!(editor.buffer().path.as_deref(), Some(second.as_path()));
+        assert_eq!(editor.buffer().content(), "second\n");
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn normal_ctrl_caret_without_alternate_reports_and_stays() {
+        let mut editor = Editor::default();
+        editor.replace_buffer_content("only\n");
+
+        handle_key(&mut editor, ctrl_key('^'));
+
+        assert_eq!(editor.buffer().content(), "only\n");
+        assert_eq!(editor.status_message.as_deref(), Some("No alternate file"));
+    }
+
+    #[test]
+    fn normal_ctrl_caret_keeps_unsaved_edits_in_the_hidden_buffer() {
+        let tmp = unique_temp_dir("nevi_alternate_buffer_hidden_edit");
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let first = tmp.join("first.txt");
+        let second = tmp.join("second.txt");
+        std::fs::write(&first, "first\n").expect("write first");
+        std::fs::write(&second, "second\n").expect("write second");
+
+        let mut editor = Editor::default();
+        editor.open_file(first.clone()).expect("open first");
+        editor.open_file(second.clone()).expect("open second");
+        editor.replace_buffer_content("second edited\n");
+
+        handle_key(&mut editor, ctrl_key('^'));
+        assert_eq!(editor.buffer().path.as_deref(), Some(first.as_path()));
+        handle_key(&mut editor, ctrl_key('^'));
+
+        assert_eq!(editor.buffer().path.as_deref(), Some(second.as_path()));
+        assert_eq!(editor.buffer().content(), "second edited\n");
+        assert!(editor.buffer().dirty);
+        assert_eq!(
+            std::fs::read_to_string(&second).expect("read second"),
+            "second\n"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn normal_ctrl_caret_on_a_deleted_alternate_opens_it_as_a_new_file() {
+        let tmp = unique_temp_dir("nevi_alternate_buffer_deleted");
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let first = tmp.join("first.txt");
+        let second = tmp.join("second.txt");
+        std::fs::write(&first, "first\n").expect("write first");
+        std::fs::write(&second, "second\n").expect("write second");
+
+        let mut editor = Editor::default();
+        editor.open_file(first.clone()).expect("open first");
+        editor.open_file(second.clone()).expect("open second");
+        editor.close_current_buffer();
+        std::fs::remove_file(&second).expect("delete second");
+
+        handle_key(&mut editor, ctrl_key('^'));
+
+        // Same as `:e` on a name that does not exist yet: an empty buffer
+        // under that path, ready to be written.
+        assert_eq!(editor.buffer().path.as_deref(), Some(second.as_path()));
+        assert!(editor.buffer().content().trim().is_empty());
+
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]
@@ -16167,6 +16582,136 @@ mod tests {
                 .as_deref()
                 .unwrap_or_default()
                 .contains("No write since last change")
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    // Vim's last-window rule: :q!, :wq, :x and ZZ may abandon the current
+    // buffer, but exiting needs every buffer accounted for. Another buffer
+    // with unsaved changes is shown instead of exiting. Only :qa! discards
+    // everything.
+    fn two_files_with_a_hidden_edit(
+        prefix: &str,
+    ) -> (std::path::PathBuf, std::path::PathBuf, Editor) {
+        let tmp = unique_temp_dir(prefix);
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let hidden = tmp.join("hidden.txt");
+        let current = tmp.join("current.txt");
+        std::fs::write(&hidden, "hidden\n").expect("write hidden");
+        std::fs::write(&current, "current\n").expect("write current");
+
+        let mut editor = Editor::default();
+        editor.open_file(hidden.clone()).expect("open hidden");
+        editor.buffer_mut().insert_char(0, 0, 'x');
+        editor.open_file(current.clone()).expect("open current");
+        (hidden, current, editor)
+    }
+
+    #[test]
+    fn force_quit_on_last_pane_shows_the_other_modified_buffer_instead_of_exiting() {
+        let (hidden, current, mut editor) = two_files_with_a_hidden_edit("nevi_force_quit_hidden");
+        editor.buffer_mut().insert_char(0, 0, 'y');
+
+        execute_command(&mut editor, Command::ForceQuit);
+
+        assert!(!editor.should_quit);
+        assert_eq!(editor.buffer().path.as_ref(), Some(&hidden));
+        assert_eq!(editor.buffer().content(), "xhidden\n");
+        // The current buffer's edit was discarded, as :q! asks.
+        assert_eq!(editor.buffer_count(), 1);
+        assert_eq!(
+            std::fs::read_to_string(&current).expect("read current"),
+            "current\n"
+        );
+        assert!(
+            editor
+                .status_message
+                .as_deref()
+                .unwrap_or_default()
+                .contains("No write since last change for buffer \"hidden.txt\"")
+        );
+
+        let _ = std::fs::remove_dir_all(hidden.parent().expect("tmp dir"));
+    }
+
+    #[test]
+    fn write_quit_on_last_pane_saves_then_shows_the_other_modified_buffer() {
+        let (hidden, current, mut editor) = two_files_with_a_hidden_edit("nevi_write_quit_hidden");
+        editor.buffer_mut().insert_char(0, 0, 'y');
+
+        execute_command(&mut editor, Command::WriteQuit);
+
+        assert!(!editor.should_quit);
+        assert_eq!(
+            std::fs::read_to_string(&current).expect("read current"),
+            "ycurrent\n"
+        );
+        assert_eq!(editor.buffer().path.as_ref(), Some(&hidden));
+        assert!(
+            editor
+                .status_message
+                .as_deref()
+                .unwrap_or_default()
+                .contains("No write since last change for buffer")
+        );
+
+        let _ = std::fs::remove_dir_all(hidden.parent().expect("tmp dir"));
+    }
+
+    #[test]
+    fn zz_on_last_pane_shows_the_other_modified_buffer() {
+        let (hidden, _current, mut editor) = two_files_with_a_hidden_edit("nevi_zz_hidden");
+
+        handle_key(&mut editor, shift_key('Z'));
+        handle_key(&mut editor, shift_key('Z'));
+
+        assert!(!editor.should_quit);
+        assert_eq!(editor.buffer().path.as_ref(), Some(&hidden));
+
+        let _ = std::fs::remove_dir_all(hidden.parent().expect("tmp dir"));
+    }
+
+    #[test]
+    fn force_quit_exits_when_no_other_buffer_is_modified() {
+        let tmp = unique_temp_dir("nevi_force_quit_clean_others");
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let first = tmp.join("first.txt");
+        let second = tmp.join("second.txt");
+        std::fs::write(&first, "first\n").expect("write first");
+        std::fs::write(&second, "second\n").expect("write second");
+
+        let mut editor = Editor::default();
+        editor.open_file(first).expect("open first");
+        editor.open_file(second).expect("open second");
+        editor.buffer_mut().insert_char(0, 0, 'y');
+
+        execute_command(&mut editor, Command::ForceQuit);
+
+        assert!(editor.should_quit);
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn write_quit_in_a_split_closes_only_the_pane() {
+        let tmp = unique_temp_dir("nevi_write_quit_split");
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let path = tmp.join("note.txt");
+        std::fs::write(&path, "note\n").expect("write note");
+
+        let mut editor = Editor::default();
+        editor.open_file(path.clone()).expect("open note");
+        editor.vsplit(None).expect("split");
+        editor.buffer_mut().insert_char(0, 0, 'y');
+
+        execute_command(&mut editor, Command::WriteQuit);
+
+        assert!(!editor.should_quit);
+        assert_eq!(editor.panes().len(), 1);
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("read note"),
+            "ynote\n"
         );
 
         let _ = std::fs::remove_dir_all(&tmp);

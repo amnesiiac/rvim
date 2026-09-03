@@ -9,14 +9,14 @@ the test suite enforces, so it cannot drift from what is actually verified.
 
 ## Summary
 
-- **339 keybinds implemented** ([KEYBINDINGS.md](KEYBINDINGS.md)), **88 planned** ([KEYBINDS_ROADMAP.md](KEYBINDS_ROADMAP.md))
-- **125 keybinds in the coverage inventory**, each mapped to the automated test that protects it:
-  - 117 verified against real Neovim (v0.11.3) by the Vim oracle
-  - 7 protected by focused Nevi regression tests
+- **352 keybinds implemented** ([KEYBINDINGS.md](KEYBINDINGS.md)), **75 planned** ([KEYBINDS_ROADMAP.md](KEYBINDS_ROADMAP.md))
+- **184 keybinds in the coverage inventory**, each mapped to the automated test that protects it:
+  - 172 verified against real Neovim (v0.11.3) by the Vim oracle
+  - 11 protected by focused Nevi regression tests
   - 1 covered as default-keymap plumbing with dedicated tests
-- **309 oracle cases**: motions (144), editing (105), insert-entry (11), open-line (20), replace (27), undo-redo (2)
+- **481 oracle cases**: motions (144), editing (135), increment (31), insert-entry (17), open-line (20), replace (27), search (51), text-objects (30), undo-redo (2), visual (24)
 - **0 tracked coverage gaps**
-- **168 of 437 documented keybind rows map to an inventoried keybind**; the rest work today but are not yet individually tracked ([full list below](#documented-but-not-yet-inventoried))
+- **239 of 446 documented keybind rows map to an inventoried keybind**; the rest work today but are not yet individually tracked ([full list below](#documented-but-not-yet-inventoried))
 
 ## How the Vim oracle works
 
@@ -107,6 +107,51 @@ claim protection.
 | `db` | Delete to previous word start | `delete to previous word start` |
 | `d$` | Delete through line end | `delete with line-end motion` |
 | `caw` | Change around word | `change around word` |
+| `q{a-z}` | Record macro into register | `record and play macro` |
+| `q` | Stop recording | `record and play macro` |
+| `@{a-z}` | Play macro from register | `record and play macro` |
+| `@@` | Replay last executed macro | `replay last macro` |
+| `{n}@{a-z}` | Play macro n times | `counted macro play` |
+| `"a` | Named registers | `named register yank and paste` |
+| `"A` | Append to named registers | `named register append` |
+| `"_` | Black hole register | `black hole delete keeps unnamed register` |
+| `"0` | Last yank register | `register zero keeps last yank after delete` |
+| `".` | Last inserted text register | `last inserted text register` |
+| `<C-[>` | Exit insert mode | `ctrl-bracket exits insert like escape` |
+| `Backspace` | Delete character before cursor in insert | `insert backspace deletes typed chars` |
+| `<C-w>` | Delete word before cursor in insert | `insert ctrl-w deletes word before cursor` |
+| `<C-a>` | Insert previously inserted text | `insert ctrl-a repeats last inserted text` |
+| `Ctrl+r {reg}` | Insert register contents | `insert ctrl-r pastes named register` |
+| `<C-a>` | Add count to the number at or after the cursor | `increment number after cursor` |
+| `<C-x>` | Subtract count from the number at or after the cursor | `decrement number after cursor` |
+| `v` | Character-wise visual mode | `visual charwise delete` |
+| `V` | Line-wise visual mode | `visual linewise delete` |
+| `<C-v>` | Block visual mode | `visual block delete` |
+| `Esc` | Exit visual mode | `escape cancels visual selection` |
+| `gv` | Reselect last visual selection | `reselect last visual selection` |
+| `u` | Lowercase selection | `visual lowercase charwise` |
+| `U` | Uppercase selection | `visual uppercase linewise` |
+| `~` | Toggle case of selection | `visual toggle case block` |
+| `gu` | Lowercase selection | `visual g-lowercase charwise` |
+| `gU` | Uppercase selection | `visual g-uppercase block` |
+| `g~` | Toggle case of selection | `visual g-toggle case charwise` |
+| `r{char}` | Replace every selected character | `visual replace block skips short lines` |
+| `J` | Join selected lines with spaces | `visual join three lines` |
+| `gJ` | Join selected lines without spaces | `visual join without spaces keeps whitespace` |
+| `iw` | Inner/around word objects | `delete inner word` |
+| `iW` | Inner/around WORD objects | `delete inner big word` |
+| `i"` | Inner/around double-quote objects | `change inner double quotes from before the string` |
+| `i'` | Inner/around single-quote objects | `delete inner single quotes` |
+| `i`` | Inner/around backtick objects | `delete inner backticks` |
+| `i(` | Inner/around parentheses objects | `delete inner parens` |
+| `ib` | Inner/around parentheses alias | `inner parens via b alias` |
+| `i{` | Inner/around brace objects | `nested braces inner targets innermost` |
+| `iB` | Inner/around brace alias | `inner braces via B alias` |
+| `i[` | Inner/around bracket objects | `delete inner brackets` |
+| `i<` | Inner/around angle bracket objects | `delete inner angle brackets` |
+| `ip` | Inner/around paragraph objects | `delete inner paragraph` |
+| `is` | Inner/around sentence objects | `delete inner sentence` |
+| `it` | Inner/around tag objects | `delete inner tag` |
 | `d` | Delete with a motion | `delete word` |
 | `c` | Change with a motion | `change inner word` |
 | `y` | Yank with a motion | `yank to line end` |
@@ -153,6 +198,16 @@ claim protection.
 | `zz` | Center cursor line | `center cursor line` |
 | `zt` | Move cursor line to top | `cursor line to top` |
 | `zb` | Move cursor line to bottom | `cursor line to bottom` |
+| `/` | Search forward | `search forward lands on match start` |
+| `?` | Search backward | `search backward lands on previous match` |
+| `n` | Go to next match | `next match` |
+| `N` | Go to previous match | `previous match reverses direction` |
+| `*` | Search word under cursor forward | `star searches word forward` |
+| `#` | Search word under cursor backward | `hash searches word backward` |
+| `g*` | Search word under cursor forward, also inside longer words | `g-star finds match inside longer word` |
+| `g#` | Search word under cursor backward, also inside longer words | `g-hash finds match inside longer word backward` |
+| `gn` | Search forward and select match | `gn selects next match from outside` |
+| `gN` | Search backward and select match | `gN selects match backward` |
 
 ## Protected by Nevi regression tests
 
@@ -160,10 +215,14 @@ Nevi-owned behavior with no Vim equivalent to compare against.
 
 | Keybind | Behavior | Test |
 |---------|----------|----|
+| `ZZ` | Save if modified and quit | `normal_zz_writes_modified_file_and_quits` |
+| `ZQ` | Quit without saving | `normal_zq_quits_without_saving` |
+| `<C-^>` | Switch to the alternate buffer | `normal_ctrl_caret_toggles_between_the_last_two_buffers` |
 | `]m` | Move to next method/function start (tree-sitter) | `method_motion_jumps_between_function_starts` |
 | `[m` | Move to previous method/function start (tree-sitter) | `method_motion_jumps_between_function_starts` |
 | `]M` | Move to next method/function end (tree-sitter) | `method_motion_ends_land_on_closing_brace` |
 | `[M` | Move to previous method/function end (tree-sitter) | `method_motion_ends_land_on_closing_brace` |
+| `=` | Re-indent selected lines | `visual_equals_reindents_selection_like_double_equals` |
 | `<leader>j` | Start labeled jump navigation | `labeled_jump_jumps_to_selected_visible_match` |
 | `1-9 (start screen)` | Open the numbered start screen entry | `dashboard_digit_opens_numbered_entry_via_key` |
 | `h1-h9 (start screen)` | Jump to the numbered harpoon slot from the start screen | `dashboard_h_digit_opens_harpoon_slot` |
@@ -188,87 +247,39 @@ like `dw` are tracked as single inventory entries, so their building-block
 rows may already be covered compositionally.)
 
 <details>
-<summary>269 untracked rows</summary>
+<summary>207 untracked rows</summary>
 
 | Keybind | Behavior |
 |---------|----------|
 | ``` `` ``` | Jump to the exact position before the last jump |
 | `>` | Indent right |
 | `<` | Indent left |
-| `=` | Auto-indent |
-| `gu` | Lowercase |
-| `gU` | Uppercase |
-| `g~` | Toggle case |
 | `>>` | Indent current line |
 | `<<` | Dedent current line |
 | `>{motion}` | Indent with motion (e.g., `>j` indents current and next line) |
 | `<{motion}` | Dedent with motion |
 | `==` | Auto-indent current line |
 | `={motion}` | Auto-indent with motion |
-| `/` | Search forward |
-| `?` | Search backward |
-| `n` | Go to next match |
-| `N` | Go to previous match |
-| `*` | Search word under cursor forward |
-| `#` | Search word under cursor backward |
-| `gn` | Search forward and select match |
-| `gN` | Search backward and select match |
-| `Ctrl+w` | Delete word before cursor |
-| `Ctrl+r {reg}` | Insert register contents |
 | `Up` | Navigate to previous search history entry |
 | `Down` | Navigate to next search history entry |
 | `m{A-Z}` | Set global mark (works across files) |
 | `` `{a-z} `` | Jump to exact position of local mark |
 | `'{A-Z}` | Jump to line of global mark |
 | `` `{A-Z} `` | Jump to exact position of global mark |
-| `q{a-z}` | Start recording macro into register |
-| `q` | Stop recording (when recording) |
-| `@{a-z}` | Play macro from register |
-| `@@` | Replay last executed macro |
-| `{n}@{a-z}` | Play macro n times |
 | `:Macros` | Open all recorded macros as notation in a read-only `[macros]` buffer |
 | `:MacroEdit {a-z}` | Edit one register's notation in a `[macro-{register}]` scratch buffer; `:w` applies it back to the register (empty content clears it) |
-| `Esc` or `Ctrl+[` | Exit insert mode |
-| `Backspace` | Delete character before cursor |
-| `Ctrl+w` | Delete word before cursor |
 | `Ctrl+t` | Increase indent of current line |
-| `Ctrl+a` | Insert previously inserted text |
-| `Ctrl+r {reg}` | Insert contents of register |
+| `Ctrl+v {key}` or `Ctrl+q {key}` | Insert the next key literally (e.g. `Ctrl+v` `Ctrl+y` inserts the `0x19` control character, `Ctrl+v` `Tab` a real tab) |
 | `Ctrl+l` | Accept visible Copilot suggestion |
 | `Alt+]` | Next visible Copilot suggestion |
 | `Alt+[` | Previous visible Copilot suggestion |
-| `Esc` or `Ctrl+[` | Exit replace mode |
-| `Backspace` | Restore the previous straight-line replacement, or navigate backward after cursor movement |
-| `v` | Enter character-wise visual mode |
-| `V` | Enter line-wise visual mode |
-| `Ctrl+v` | Enter block visual mode |
-| `Esc` | Exit visual mode |
 | `>` | Indent selection |
 | `<` | Dedent selection |
 | `gc` | Toggle comment on selection |
 | `S{char}` | Surround selection with character |
-| `gv` | Reselect last visual selection (from normal mode) |
-| `iw` / `aw` | Inner/around word |
-| `iW` / `aW` | Inner/around WORD |
-| `i"` / `a"` | Inner/around double quotes |
-| `i'` / `a'` | Inner/around single quotes |
 | `` i` `` / `` a` `` | Inner/around backticks |
-| `i(` / `a(` | Inner/around parentheses |
-| `ib` / `ab` | Inner/around parentheses (alias) |
-| `i{` / `a{` | Inner/around braces |
-| `iB` / `aB` | Inner/around braces (alias) |
-| `i[` / `a[` | Inner/around brackets |
-| `i<` / `a<` | Inner/around angle brackets |
-| `ip` / `ap` | Inner/around paragraph |
-| `is` / `as` | Inner/around sentence |
-| `it` / `at` | Inner/around HTML/XML tag |
-| `"a` - `"z` | Named registers |
-| `"A` - `"Z` | Append to named registers |
 | `"+` | System clipboard |
 | `"*` | Selection clipboard (same as `+` on macOS) |
-| `"_` | Black hole (delete without saving) |
-| `"0` | Last yank |
-| `".` | Last inserted text |
 | `"%` | Current filename |
 | `":` | Last command |
 | `"#` | Alternate filename |
@@ -343,7 +354,6 @@ rows may already be covered compositionally.)
 | `Ctrl+Shift+W` | Close current terminal session |
 | `Ctrl+Shift+C` | Copy the current terminal selection |
 | `Cmd+C` | Copy the current terminal selection when the outer terminal forwards the key to Nevi |
-| `Esc` / `Ctrl+[` | Clear the current terminal selection |
 | `<leader>ca` | Code actions |
 | `<leader>rn` | Rename symbol |
 | `<leader>d` | Search diagnostics |
@@ -358,31 +368,20 @@ rows may already be covered compositionally.)
 | `<leader>4` | Jump to harpoon slot 4 |
 | `Ctrl+j` / `Ctrl+n` / `Down` | Move to next result |
 | `Ctrl+k` / `Ctrl+p` / `Up` | Move to previous result |
-| `Esc` | Switch to normal mode |
 | `Ctrl+c` | Close finder |
 | `Ctrl+t` | Toggle preview panel |
 | `g` | Go to first result |
-| `Esc` / `Ctrl+[` / `Ctrl+c` | Close finder |
 | `K` | Move selected Harpoon item up |
-| `Esc` / `Ctrl+[` / `q` | Close explorer |
 | `Tab` | Toggle expand/collapse |
-| `?` | Show explorer keymaps |
 | `Ctrl+l` | Focus editor and keep explorer open |
 | `>` | Widen explorer sidebar |
 | `<` | Narrow explorer sidebar |
-| `=` | Reset explorer sidebar width |
 | `r` | Rename selected item |
-| `/` | Search explorer |
-| `n` / `N` | Next/previous search match |
 | `]h` | Go to next harpoon file |
 | `[h` | Go to previous harpoon file |
 | `1` - `9` | Open the numbered recent file |
-| `Ctrl+w` | Delete word before cursor |
-| `Ctrl+r {reg}` | Insert register contents |
-| `Ctrl+v` / `Ctrl+q` | Insert the next key literally |
 | `Ctrl+k {char1}{char2}` | Insert a Vim-compatible digraph, for example `a:` -> `ä` |
 | `Ctrl+l` | Complete longest common command prefix |
-| `Ctrl+a` | Insert all matching command completions |
 | `Alt+r` | Toggle command history window |
 | `Tab` | Accept selected command completion |
 | `Shift+Tab` | Accept previous completion |
@@ -391,12 +390,10 @@ rows may already be covered compositionally.)
 | `:w!` / `:write!` | Force save file, overwriting external disk changes |
 | `:wa` / `:wall` | Save all files |
 | `:q` / `:quit` | Quit |
-| `:q!` / `:quit!` | Force quit (discard changes) |
 | `:qa` / `:qall` | Quit all |
 | `:qa!` / `:qall!` | Force quit all |
 | `:wq` | Save and quit |
 | `:wqa` / `:wqall` / `:xall` | Save all and quit |
-| `:x` / `:exit` / `ZZ` | Save if modified and quit |
 | `:xa` | Save all modified files and quit all |
 | `:e {file}` / `:edit {file}` | Edit/open a file |
 | `:e!` / `:edit!` | Reload current file and discard changes |

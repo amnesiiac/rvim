@@ -630,4 +630,153 @@ vim_default = true
         );
         assert!(entries.iter().any(|e| e.status == "implemented"));
     }
+
+    /// Rows documented in KEYBINDINGS.md that intentionally do not appear in
+    /// the embedded cheatsheet. Every entry carries its reason; anything not
+    /// listed here must be in keybinds.toml or the sync test fails.
+    const CHEATSHEET_ALLOWLIST: &[(&str, &str)] = &[];
+
+    /// Normalize a KEYBINDINGS.md key token to the cheatsheet's notation:
+    /// `Ctrl+x` -> `<C-x>`, `Ctrl+w v` -> `<C-w>v`, named keys to `<...>`
+    /// form, `{...}` placeholders dropped so `m{a-z}` matches a toml row
+    /// keyed `m`, and register rows (`"a`) collapsed to their `"` family.
+    fn cheatsheet_notation(token: &str) -> String {
+        let mut t = String::new();
+        let mut rest = token;
+        while let (Some(start), Some(end)) = (rest.find('{'), rest.find('}')) {
+            if start < end {
+                t.push_str(&rest[..start]);
+                rest = &rest[end + 1..];
+            } else {
+                break;
+            }
+        }
+        t.push_str(rest);
+        let t = t.trim();
+        if t.len() >= 2 && t.starts_with('"') {
+            return "\"".to_string();
+        }
+        t.split(' ').map(notation_part).collect()
+    }
+
+    /// Toml keys are already in the cheatsheet notation; they only need the
+    /// placeholder strip and the register-family collapse, never the
+    /// `Ctrl+`-style rewriting (which would mangle keys containing `+`).
+    fn toml_key_form(key: &str) -> String {
+        let mut t = String::new();
+        let mut rest = key;
+        while let (Some(start), Some(end)) = (rest.find('{'), rest.find('}')) {
+            if start < end {
+                t.push_str(&rest[..start]);
+                rest = &rest[end + 1..];
+            } else {
+                break;
+            }
+        }
+        t.push_str(rest);
+        let t = t.trim();
+        if t.len() >= 2 && t.starts_with('"') {
+            return "\"".to_string();
+        }
+        t.to_string()
+    }
+
+    /// One space-separated chord part: `Ctrl+Shift+T` -> `<C-S-T>`.
+    fn notation_part(part: &str) -> String {
+        // A literal `+` key (as in `Ctrl+w +`) is not a modifier separator.
+        if part == "+" {
+            return "+".to_string();
+        }
+        let pieces: Vec<&str> = part.split('+').collect();
+        let (mods, key) = pieces.split_at(pieces.len() - 1);
+        let key = key[0];
+        let named = match key {
+            "Enter" => Some("CR"),
+            "Esc" | "Escape" => Some("Esc"),
+            "Tab" => Some("Tab"),
+            "Backspace" => Some("BS"),
+            "Space" => Some("Space"),
+            "Up" => Some("Up"),
+            "Down" => Some("Down"),
+            "Left" => Some("Left"),
+            "Right" => Some("Right"),
+            _ => None,
+        };
+        if mods.is_empty() {
+            return match named {
+                Some(name) => format!("<{name}>"),
+                None => key.to_string(),
+            };
+        }
+        let mod_letters: String = mods
+            .iter()
+            .map(|m| match *m {
+                "Ctrl" => "C-",
+                "Alt" => "A-",
+                "Shift" => "S-",
+                "Cmd" => "D-",
+                other => other,
+            })
+            .collect();
+        format!(
+            "<{}{}>",
+            mod_letters,
+            named.map(str::to_string).unwrap_or_else(|| key.to_string())
+        )
+    }
+
+    /// True when the row's key reaches :Keymaps through a live overlay at
+    /// runtime instead of the embedded toml: commands from the registry,
+    /// leader bindings from config.
+    fn overlay_provided(token: &str) -> bool {
+        token.starts_with(':') || token.starts_with("<leader>") || token.starts_with("Space")
+    }
+
+    /// :Keymaps must show every keybind KEYBINDINGS.md documents. The
+    /// cheatsheet toml is a separate file embedded at build time, and it
+    /// silently drifted for months before this test existed.
+    #[test]
+    fn cheatsheet_covers_documented_keybinds() {
+        let toml_keys: std::collections::HashSet<String> = load_keybinds()
+            .iter()
+            .map(|entry| toml_key_form(&entry.key))
+            .collect();
+
+        let mut missing = Vec::new();
+        for row in crate::parity_report::documented_rows() {
+            if row.keys.iter().any(|token| overlay_provided(token)) {
+                continue;
+            }
+            if CHEATSHEET_ALLOWLIST
+                .iter()
+                .any(|(cell, _)| *cell == row.key_cell)
+            {
+                continue;
+            }
+            // Rows whose tokens normalize to nothing (double-backtick
+            // formatting like the mark rows) can't be matched mechanically;
+            // their toml rows exist but are checked by eye.
+            if row
+                .keys
+                .iter()
+                .all(|token| cheatsheet_notation(token).is_empty())
+            {
+                continue;
+            }
+            let satisfied = row.keys.iter().any(|token| {
+                let wanted = cheatsheet_notation(token);
+                !wanted.is_empty() && toml_keys.contains(&wanted)
+            });
+            if !satisfied {
+                missing.push(format!("{} ({})", row.key_cell, row.description_cell));
+            }
+        }
+
+        assert!(
+            missing.is_empty(),
+            "KEYBINDINGS.md rows missing from src/finder/keybinds.toml — add them \
+             there so :Keymaps shows them, or allowlist them with a reason:\n{}",
+            missing.join("\n")
+        );
+    }
 }

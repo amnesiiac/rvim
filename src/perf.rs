@@ -125,6 +125,17 @@ impl FlightRecorder {
         self.events.push_back(event);
     }
 
+    /// Retained events, oldest first. The ring drops oldest events at
+    /// capacity, so a reader tracking sequence numbers can detect gaps.
+    pub fn events(&self) -> impl Iterator<Item = &FlightEvent> {
+        self.events.iter()
+    }
+
+    /// Sequence number the next recorded event will receive.
+    pub fn next_sequence(&self) -> u64 {
+        self.next_sequence
+    }
+
     pub fn render_report(&self) -> String {
         let mut report = String::new();
         report.push_str("# Nevi Flight Recorder\n\n");
@@ -219,9 +230,11 @@ impl FlightRecorder {
 fn slow_threshold_us(name: &str) -> u128 {
     match name {
         "handle_key" | "handle_mouse" => 1_000,
-        "render" | "render_after_lsp" | "syntax_update" => 16_000,
+        "render" | "render_after_lsp" | "syntax_update" | "syntax_parse" => 16_000,
         "finder_preview" | "finder_grep" | "terminal_tick" | "terminal_render" => 5_000,
         "lsp_poll" | "copilot_poll" => 10_000,
+        // One-off bulk operations (full walk / full-repo status), not per-frame work.
+        "finder_list_files" | "git_file_statuses" => 100_000,
         "slow_cycle" => 100_000,
         _ => 10_000,
     }
@@ -311,6 +324,24 @@ mod tests {
         assert!(report.contains("syntax_update"));
         assert!(report.contains("slow"));
         assert!(!report.contains("900us"));
+    }
+
+    #[test]
+    fn flight_recorder_exposes_events_and_sequence_for_draining() {
+        let mut recorder = FlightRecorder::with_capacity(2);
+
+        recorder.record("a", Duration::from_micros(1));
+        recorder.record("b", Duration::from_micros(2));
+        recorder.record("c", Duration::from_micros(3));
+
+        assert_eq!(recorder.next_sequence(), 3);
+        // Oldest event (sequence 0) was evicted; a drain tracking sequence 0
+        // sees the gap via the first retained sequence.
+        let retained: Vec<_> = recorder
+            .events()
+            .map(|event| (event.sequence, event.name))
+            .collect();
+        assert_eq!(retained, vec![(1, "b"), (2, "c")]);
     }
 
     #[test]

@@ -383,6 +383,15 @@ Operators are commands that wait for a motion. For example, `d` (delete) + `w` (
 > - `ci"` - Change inside quotes
 > - `ya(` - Yank around parentheses
 
+### Numbers
+
+| Key | Action |
+|-----|--------|
+| `Ctrl+a` / `{n}Ctrl+a` | Add 1 (or count) to the number at or after the cursor |
+| `Ctrl+x` / `{n}Ctrl+x` | Subtract 1 (or count) from the number at or after the cursor |
+
+> **Note:** Like Neovim's default `nrformats=bin,hex`: decimal numbers with an optional `-`, `0x` hex, and `0b` binary. Leading zeros keep their width (`007` becomes `008`), hex digits keep their case, and the cursor lands on the last digit. Works with `.` and undoes in one step.
+
 ### Undo/Redo
 
 | Key | Action |
@@ -432,10 +441,11 @@ Operators are commands that wait for a motion. For example, `d` (delete) + `w` (
 | `N` | Go to previous match |
 | `*` | Search word under cursor forward |
 | `#` | Search word under cursor backward |
+| `g*` / `g#` | Same as `*` / `#` but also match inside longer words |
 | `gn` | Search forward and select match |
 | `gN` | Search backward and select match |
 
-> **Tip:** Search supports regex. Use `\c` at the start for case-insensitive search (e.g., `/\cfoo`).
+> **Note:** Search matches literal text and is case sensitive, like Vim with default settings. Regex patterns are not supported yet, with one exception: the word boundary atoms `\<` and `\>` work, so `/\<abc\>` matches `abc` only as a whole word. `*` and `#` search for `\<word\>` like Vim, which is why they skip the word when it sits inside a longer one.
 
 ### Search Prompt Editing
 
@@ -528,6 +538,7 @@ View and edit recorded macros as readable key notation instead of re-recording.
 | `Ctrl+a` | Insert previously inserted text |
 | `Ctrl+r {reg}` | Insert contents of register |
 | `Ctrl+o` | Run one normal-mode command, then return to insert |
+| `Ctrl+v {key}` or `Ctrl+q {key}` | Insert the next key literally (e.g. `Ctrl+v` `Ctrl+y` inserts the `0x19` control character, `Ctrl+v` `Tab` a real tab) |
 
 **Copilot (if enabled):**
 
@@ -574,6 +585,10 @@ Moving the cursor cancels that restoration and counted replay history.
 | `p` | Paste over selection |
 | `~` | Toggle case of selection |
 | `u` / `U` | Lowercase / uppercase selection |
+| `gu` / `gU` / `g~` | Lowercase / uppercase / toggle case of selection |
+| `r{char}` | Replace every selected character with {char} |
+| `J` / `gJ` | Join the selected lines with / without spaces, at least two |
+| `=` | Re-indent the selected lines |
 | `o` | Swap to other end of selection |
 | `O` | Swap to other corner in visual block mode |
 | `I` | Insert before the visual block on each selected line |
@@ -972,7 +987,7 @@ While typing an Ex command after `:`.
 | `:w!` / `:write!` | Force save file, overwriting external disk changes |
 | `:wa` / `:wall` | Save all files |
 | `:q` / `:quit` | Quit |
-| `:q!` / `:quit!` | Force quit (discard changes) |
+| `:q!` / `:quit!` / `ZQ` | Force quit (discard changes) |
 | `:qa` / `:qall` | Quit all |
 | `:qa!` / `:qall!` | Force quit all |
 | `:wq` | Save and quit |
@@ -1010,8 +1025,11 @@ While typing an Ex command after `:`.
 |---------|--------|
 | `:bn` | Next buffer |
 | `:bp` | Previous buffer |
+| `Ctrl+^` | Switch to the alternate buffer, the one this window showed last (reopens it if closed) |
 | `:bd` / `:bdelete` | Close current buffer (fails if unsaved) |
 | `:bd!` / `:bdelete!` | Force close current buffer |
+
+> **Note:** The alternate file is tracked once for the whole editor, not per window like Vim, so switching buffers in one split also changes what `Ctrl+^` and the `"#` register point at in the other.
 
 ### Splits
 

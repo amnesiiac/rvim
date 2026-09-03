@@ -6,14 +6,22 @@ use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 mod editing_cases;
+mod increment_cases;
 mod insert_entry_cases;
 mod open_line_cases;
 mod replace_cases;
+mod search_cases;
+mod text_object_cases;
+mod visual_cases;
 
 use editing_cases::EDITING_CASES;
+use increment_cases::INCREMENT_CASES;
 use insert_entry_cases::INSERT_ENTRY_CASES;
 use open_line_cases::OPEN_LINE_CASES;
 use replace_cases::REPLACE_CASES;
+use search_cases::SEARCH_CASES;
+use text_object_cases::TEXT_OBJECT_CASES;
+use visual_cases::VISUAL_CASES;
 
 #[derive(Debug, Clone, Copy)]
 struct OracleCase {
@@ -996,6 +1004,10 @@ const ORACLE_CATEGORIES: &[OracleCategory] = &[
         cases: EDITING_CASES,
     },
     OracleCategory {
+        name: "increment",
+        cases: INCREMENT_CASES,
+    },
+    OracleCategory {
         name: "insert-entry",
         cases: INSERT_ENTRY_CASES,
     },
@@ -1008,8 +1020,20 @@ const ORACLE_CATEGORIES: &[OracleCategory] = &[
         cases: REPLACE_CASES,
     },
     OracleCategory {
+        name: "search",
+        cases: SEARCH_CASES,
+    },
+    OracleCategory {
+        name: "text-objects",
+        cases: TEXT_OBJECT_CASES,
+    },
+    OracleCategory {
         name: "undo-redo",
         cases: UNDO_REDO_CASES,
+    },
+    OracleCategory {
+        name: "visual",
+        cases: VISUAL_CASES,
     },
 ];
 
@@ -1263,7 +1287,7 @@ fn run_neovim_case_with_options(
 fn neovim_snapshot_lua(keys: &str, text_rows: u16, wrap: bool) -> String {
     format!(
         r#"
-local keys = vim.api.nvim_replace_termcodes("{}", true, false, true)
+local keys = vim.api.nvim_replace_termcodes("{}", true, true, true)
 vim.o.scrolloff = {}
 vim.o.wrap = {}
 vim.api.nvim_win_set_width(0, {})
