@@ -582,6 +582,16 @@ const KEYBIND_COVERAGE: &[KeybindCoverage] = &[
         "hash searches word backward",
     ),
     vim_oracle(
+        "g*",
+        "Search word under cursor forward, also inside longer words",
+        "g-star finds match inside longer word",
+    ),
+    vim_oracle(
+        "g#",
+        "Search word under cursor backward, also inside longer words",
+        "g-hash finds match inside longer word backward",
+    ),
+    vim_oracle(
         "gn",
         "Search forward and select match",
         "gn selects next match from outside",

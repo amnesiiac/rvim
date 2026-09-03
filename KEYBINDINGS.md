@@ -441,6 +441,7 @@ Operators are commands that wait for a motion. For example, `d` (delete) + `w` (
 | `N` | Go to previous match |
 | `*` | Search word under cursor forward |
 | `#` | Search word under cursor backward |
+| `g*` / `g#` | Same as `*` / `#` but also match inside longer words |
 | `gn` | Search forward and select match |
 | `gN` | Search backward and select match |
 

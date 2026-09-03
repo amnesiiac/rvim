@@ -847,6 +847,20 @@ status = "implemented"
 vim_default = true
 
 [[normal.search]]
+key = "g*"
+action = "search_word_forward_anywhere"
+desc = "Search word under cursor forward, also inside longer words"
+status = "implemented"
+vim_default = true
+
+[[normal.search]]
+key = "g#"
+action = "search_word_backward_anywhere"
+desc = "Search word under cursor backward, also inside longer words"
+status = "implemented"
+vim_default = true
+
+[[normal.search]]
 key = "#"
 action = "search_word_backward"
 desc = "Search word under cursor backward"

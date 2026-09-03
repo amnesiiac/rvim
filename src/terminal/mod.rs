@@ -7832,6 +7832,14 @@ fn handle_normal_mode(editor: &mut Editor, key: KeyEvent) {
             editor.search_word_backward();
         }
 
+        KeyAction::SearchWordForwardAnywhere => {
+            editor.search_word_forward_anywhere();
+        }
+
+        KeyAction::SearchWordBackwardAnywhere => {
+            editor.search_word_backward_anywhere();
+        }
+
         KeyAction::SearchSelectNext(count) => {
             editor.search_select_next(count);
         }

@@ -9,14 +9,14 @@ the test suite enforces, so it cannot drift from what is actually verified.
 
 ## Summary
 
-- **350 keybinds implemented** ([KEYBINDINGS.md](KEYBINDINGS.md)), **77 planned** ([KEYBINDS_ROADMAP.md](KEYBINDS_ROADMAP.md))
-- **182 keybinds in the coverage inventory**, each mapped to the automated test that protects it:
-  - 170 verified against real Neovim (v0.11.3) by the Vim oracle
+- **352 keybinds implemented** ([KEYBINDINGS.md](KEYBINDINGS.md)), **75 planned** ([KEYBINDS_ROADMAP.md](KEYBINDS_ROADMAP.md))
+- **184 keybinds in the coverage inventory**, each mapped to the automated test that protects it:
+  - 172 verified against real Neovim (v0.11.3) by the Vim oracle
   - 11 protected by focused Nevi regression tests
   - 1 covered as default-keymap plumbing with dedicated tests
-- **474 oracle cases**: motions (144), editing (135), increment (31), insert-entry (17), open-line (20), replace (27), search (44), text-objects (30), undo-redo (2), visual (24)
+- **481 oracle cases**: motions (144), editing (135), increment (31), insert-entry (17), open-line (20), replace (27), search (51), text-objects (30), undo-redo (2), visual (24)
 - **0 tracked coverage gaps**
-- **238 of 445 documented keybind rows map to an inventoried keybind**; the rest work today but are not yet individually tracked ([full list below](#documented-but-not-yet-inventoried))
+- **239 of 446 documented keybind rows map to an inventoried keybind**; the rest work today but are not yet individually tracked ([full list below](#documented-but-not-yet-inventoried))
 
 ## How the Vim oracle works
 
@@ -204,6 +204,8 @@ claim protection.
 | `N` | Go to previous match | `previous match reverses direction` |
 | `*` | Search word under cursor forward | `star searches word forward` |
 | `#` | Search word under cursor backward | `hash searches word backward` |
+| `g*` | Search word under cursor forward, also inside longer words | `g-star finds match inside longer word` |
+| `g#` | Search word under cursor backward, also inside longer words | `g-hash finds match inside longer word backward` |
 | `gn` | Search forward and select match | `gn selects next match from outside` |
 | `gN` | Search backward and select match | `gN selects match backward` |
 
