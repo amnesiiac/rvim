@@ -1441,6 +1441,55 @@ status = "implemented"
 vim_default = true
 
 [[visual.editing]]
+key = "gu"
+action = "lowercase_selection"
+desc = "Lowercase selection"
+status = "implemented"
+vim_default = true
+
+[[visual.editing]]
+key = "gU"
+action = "uppercase_selection"
+desc = "Uppercase selection"
+status = "implemented"
+vim_default = true
+
+[[visual.editing]]
+key = "g~"
+action = "toggle_case_selection"
+desc = "Toggle case of selection"
+status = "implemented"
+vim_default = true
+
+[[visual.editing]]
+key = "r"
+action = "replace_selection_chars"
+desc = "Replace every selected character with the next key"
+status = "implemented"
+vim_default = true
+
+[[visual.editing]]
+key = "J"
+action = "join_selection"
+desc = "Join the selected lines with spaces"
+status = "implemented"
+vim_default = true
+
+[[visual.editing]]
+key = "gJ"
+action = "join_selection_no_space"
+desc = "Join the selected lines without spaces"
+status = "implemented"
+vim_default = true
+
+[[visual.editing]]
+key = "="
+action = "auto_indent_selection"
+desc = "Re-indent the selected lines"
+status = "implemented"
+vim_default = true
+
+[[visual.editing]]
 key = "c"
 action = "change_selection"
 desc = "Change selection"

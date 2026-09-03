@@ -12,6 +12,7 @@ mod open_line_cases;
 mod replace_cases;
 mod search_cases;
 mod text_object_cases;
+mod visual_cases;
 
 use editing_cases::EDITING_CASES;
 use increment_cases::INCREMENT_CASES;
@@ -20,6 +21,7 @@ use open_line_cases::OPEN_LINE_CASES;
 use replace_cases::REPLACE_CASES;
 use search_cases::SEARCH_CASES;
 use text_object_cases::TEXT_OBJECT_CASES;
+use visual_cases::VISUAL_CASES;
 
 #[derive(Debug, Clone, Copy)]
 struct OracleCase {
@@ -1028,6 +1030,10 @@ const ORACLE_CATEGORIES: &[OracleCategory] = &[
     OracleCategory {
         name: "undo-redo",
         cases: UNDO_REDO_CASES,
+    },
+    OracleCategory {
+        name: "visual",
+        cases: VISUAL_CASES,
     },
 ];
 
