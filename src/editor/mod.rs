@@ -6870,6 +6870,27 @@ impl Editor {
             .collect()
     }
 
+    /// Vim's last-window rule (`check_changed_any`): exiting needs every
+    /// buffer accounted for. When another buffer still has unsaved changes,
+    /// drop the current one (the caller has saved it or chosen to discard
+    /// it) and show the first modified buffer instead; returns its name.
+    /// None means nothing else is modified and exiting is fine.
+    pub fn show_first_other_modified_buffer(&mut self) -> Option<String> {
+        let current = self.current_buffer_idx;
+        let another_is_modified = self
+            .buffers
+            .iter()
+            .enumerate()
+            .any(|(idx, buffer)| idx != current && buffer.dirty);
+        if !another_is_modified {
+            return None;
+        }
+        self.close_current_buffer();
+        let idx = self.buffers.iter().position(|buffer| buffer.dirty)?;
+        self.switch_to_buffer(idx);
+        Some(self.buffers[idx].display_name())
+    }
+
     /// Undo the last change
     pub fn undo(&mut self) {
         self.undo_stack

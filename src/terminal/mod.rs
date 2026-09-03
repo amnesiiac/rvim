@@ -10350,6 +10350,23 @@ fn rename_file_impl(
     }
 }
 
+/// Shared tail of `:q!`, `:wq`, `:x`, and `ZZ`, Vim's window-close rule: in a
+/// split only the pane goes; on the last pane exiting needs every buffer
+/// accounted for, so a buffer that still has unsaved changes is shown with
+/// Vim's E162 message instead. Only `:qa!` discards everything.
+fn close_pane_or_quit(editor: &mut Editor) -> CommandResult {
+    if editor.panes().len() > 1 {
+        editor.close_pane();
+        return CommandResult::Ok;
+    }
+    match editor.show_first_other_modified_buffer() {
+        Some(name) => {
+            CommandResult::Error(format!("No write since last change for buffer \"{name}\""))
+        }
+        None => CommandResult::Quit,
+    }
+}
+
 fn execute_command(editor: &mut Editor, cmd: Command) {
     let result = match cmd {
         Command::Write(path) => {
@@ -10469,20 +10486,12 @@ fn execute_command(editor: &mut Editor, cmd: Command) {
             }
         }
 
-        Command::ForceQuit => {
-            // If multiple panes, close just the active pane
-            if editor.panes().len() > 1 {
-                editor.close_pane();
-                CommandResult::Ok
-            } else {
-                CommandResult::Quit
-            }
-        }
+        Command::ForceQuit => close_pane_or_quit(editor),
 
         Command::WriteQuit => {
             if editor.buffer().path.is_some() {
                 match editor.save() {
-                    Ok(()) => CommandResult::Quit,
+                    Ok(()) => close_pane_or_quit(editor),
                     Err(e) => CommandResult::Error(format!("Error saving: {}", e)),
                 }
             } else {
@@ -10494,14 +10503,14 @@ fn execute_command(editor: &mut Editor, cmd: Command) {
             if editor.has_unsaved_changes() {
                 if editor.buffer().path.is_some() {
                     match editor.save() {
-                        Ok(()) => CommandResult::Quit,
+                        Ok(()) => close_pane_or_quit(editor),
                         Err(e) => CommandResult::Error(format!("Error saving: {}", e)),
                     }
                 } else {
                     CommandResult::Error("No filename".to_string())
                 }
             } else {
-                CommandResult::Quit
+                close_pane_or_quit(editor)
             }
         }
 
@@ -16507,6 +16516,136 @@ mod tests {
                 .as_deref()
                 .unwrap_or_default()
                 .contains("No write since last change")
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    // Vim's last-window rule: :q!, :wq, :x and ZZ may abandon the current
+    // buffer, but exiting needs every buffer accounted for. Another buffer
+    // with unsaved changes is shown instead of exiting. Only :qa! discards
+    // everything.
+    fn two_files_with_a_hidden_edit(
+        prefix: &str,
+    ) -> (std::path::PathBuf, std::path::PathBuf, Editor) {
+        let tmp = unique_temp_dir(prefix);
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let hidden = tmp.join("hidden.txt");
+        let current = tmp.join("current.txt");
+        std::fs::write(&hidden, "hidden\n").expect("write hidden");
+        std::fs::write(&current, "current\n").expect("write current");
+
+        let mut editor = Editor::default();
+        editor.open_file(hidden.clone()).expect("open hidden");
+        editor.buffer_mut().insert_char(0, 0, 'x');
+        editor.open_file(current.clone()).expect("open current");
+        (hidden, current, editor)
+    }
+
+    #[test]
+    fn force_quit_on_last_pane_shows_the_other_modified_buffer_instead_of_exiting() {
+        let (hidden, current, mut editor) = two_files_with_a_hidden_edit("nevi_force_quit_hidden");
+        editor.buffer_mut().insert_char(0, 0, 'y');
+
+        execute_command(&mut editor, Command::ForceQuit);
+
+        assert!(!editor.should_quit);
+        assert_eq!(editor.buffer().path.as_ref(), Some(&hidden));
+        assert_eq!(editor.buffer().content(), "xhidden\n");
+        // The current buffer's edit was discarded, as :q! asks.
+        assert_eq!(editor.buffer_count(), 1);
+        assert_eq!(
+            std::fs::read_to_string(&current).expect("read current"),
+            "current\n"
+        );
+        assert!(
+            editor
+                .status_message
+                .as_deref()
+                .unwrap_or_default()
+                .contains("No write since last change for buffer \"hidden.txt\"")
+        );
+
+        let _ = std::fs::remove_dir_all(hidden.parent().expect("tmp dir"));
+    }
+
+    #[test]
+    fn write_quit_on_last_pane_saves_then_shows_the_other_modified_buffer() {
+        let (hidden, current, mut editor) = two_files_with_a_hidden_edit("nevi_write_quit_hidden");
+        editor.buffer_mut().insert_char(0, 0, 'y');
+
+        execute_command(&mut editor, Command::WriteQuit);
+
+        assert!(!editor.should_quit);
+        assert_eq!(
+            std::fs::read_to_string(&current).expect("read current"),
+            "ycurrent\n"
+        );
+        assert_eq!(editor.buffer().path.as_ref(), Some(&hidden));
+        assert!(
+            editor
+                .status_message
+                .as_deref()
+                .unwrap_or_default()
+                .contains("No write since last change for buffer")
+        );
+
+        let _ = std::fs::remove_dir_all(hidden.parent().expect("tmp dir"));
+    }
+
+    #[test]
+    fn zz_on_last_pane_shows_the_other_modified_buffer() {
+        let (hidden, _current, mut editor) = two_files_with_a_hidden_edit("nevi_zz_hidden");
+
+        handle_key(&mut editor, shift_key('Z'));
+        handle_key(&mut editor, shift_key('Z'));
+
+        assert!(!editor.should_quit);
+        assert_eq!(editor.buffer().path.as_ref(), Some(&hidden));
+
+        let _ = std::fs::remove_dir_all(hidden.parent().expect("tmp dir"));
+    }
+
+    #[test]
+    fn force_quit_exits_when_no_other_buffer_is_modified() {
+        let tmp = unique_temp_dir("nevi_force_quit_clean_others");
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let first = tmp.join("first.txt");
+        let second = tmp.join("second.txt");
+        std::fs::write(&first, "first\n").expect("write first");
+        std::fs::write(&second, "second\n").expect("write second");
+
+        let mut editor = Editor::default();
+        editor.open_file(first).expect("open first");
+        editor.open_file(second).expect("open second");
+        editor.buffer_mut().insert_char(0, 0, 'y');
+
+        execute_command(&mut editor, Command::ForceQuit);
+
+        assert!(editor.should_quit);
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn write_quit_in_a_split_closes_only_the_pane() {
+        let tmp = unique_temp_dir("nevi_write_quit_split");
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let path = tmp.join("note.txt");
+        std::fs::write(&path, "note\n").expect("write note");
+
+        let mut editor = Editor::default();
+        editor.open_file(path.clone()).expect("open note");
+        editor.vsplit(None).expect("split");
+        editor.buffer_mut().insert_char(0, 0, 'y');
+
+        execute_command(&mut editor, Command::WriteQuit);
+
+        assert!(!editor.should_quit);
+        assert_eq!(editor.panes().len(), 1);
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("read note"),
+            "ynote\n"
         );
 
         let _ = std::fs::remove_dir_all(&tmp);
