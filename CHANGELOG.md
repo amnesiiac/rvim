@@ -13,6 +13,7 @@
 
 ### Vim Compatibility
 
+- `:q!`, `:wq`, `:x`, `ZZ`, and `ZQ` no longer exit while another buffer still has unsaved changes. Like Vim, they finish with the current buffer (saved or discarded as asked) and then show the first buffer that still needs a write, with the `No write since last change for buffer` message. `:qa!` remains the way to discard everything. `:wq`, `:x`, and `ZZ` in a split now close just that pane instead of exiting the editor. (#316)
 - Added `ZQ` to quit without saving, the same as `:q!`, and `Ctrl+^` to switch to the alternate buffer, the one the window showed before the current one. `Ctrl+^` reopens the file if its buffer was closed, and reports "No alternate file" when there is none. `Ctrl+6` works too, since that is the byte most terminals send for `Ctrl+^`.
 - Added `Ctrl+a` and `Ctrl+x` to add to or subtract from the number at or after the cursor, with a count. Follows Neovim's default `nrformats=bin,hex`: decimal with a minus sign, `0x` hex, `0b` binary, leading zeros keep their width, hex digits keep their case. Works with `.` and undoes in one step. Verified against real Neovim in a new oracle category.
 - A count before `i` or `a` now repeats the typed text like Vim, so `3ix<Esc>` gives `xxx`. `I`, `A`, `o`, and `O` already did this; the count is now set in one place for all six. (#296)
