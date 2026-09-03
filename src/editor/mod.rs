@@ -633,6 +633,18 @@ impl JumpList {
         }
     }
 
+    /// All recorded jumps, oldest first (for shada export).
+    pub fn entries(&self) -> &[JumpLocation] {
+        &self.jumps
+    }
+
+    /// Replace the list with a previous session's jumps, positioned at the
+    /// end so the first Ctrl+o walks back from the current location.
+    pub fn restore(&mut self, jumps: Vec<JumpLocation>) {
+        self.position = jumps.len();
+        self.jumps = jumps;
+    }
+
     /// Go back in the jump list (Ctrl+o)
     /// Takes current location to save if we're starting to navigate
     pub fn go_back(
@@ -1970,9 +1982,10 @@ impl Editor {
         Ok(message)
     }
 
-    /// Gather persistable session state (macros, registers, global marks,
-    /// search history) for the shada-lite file. Unencodable macros and
-    /// clipboard-backed registers are session-only by design.
+    /// Gather persistable session state (macros, registers including the
+    /// "1-"9 delete history, global marks, search history, jumplist) for the
+    /// shada-lite file. Unencodable macros, clipboard-backed registers, and
+    /// jumps in scratch buffers are session-only by design.
     pub fn export_shada(&self) -> crate::shada::ShadaState {
         let mut state = crate::shada::ShadaState {
             version: crate::shada::FORMAT_VERSION,
@@ -1994,6 +2007,13 @@ impl Editor {
             .registers
             .get(None)
             .map(RegisterContent::to_shada_entry);
+        for register in '1'..='9' {
+            if let Some(content) = self.registers.get(Some(register)) {
+                state
+                    .numbered_registers
+                    .insert(register, content.to_shada_entry());
+            }
+        }
 
         for (name, mark) in self.marks.get_global_marks() {
             if let Some(path) = &mark.path {
@@ -2009,6 +2029,20 @@ impl Editor {
         }
 
         state.search_history = self.search.history.clone();
+
+        state.jumplist = self
+            .jump_list
+            .entries()
+            .iter()
+            .filter_map(|jump| {
+                jump.path.as_ref().map(|path| crate::shada::MarkEntry {
+                    path: path.clone(),
+                    line: jump.line,
+                    col: jump.col,
+                })
+            })
+            .collect();
+
         state
     }
 
@@ -2030,11 +2064,28 @@ impl Editor {
                 .set(None, RegisterContent::from_shada_entry(entry));
         }
 
+        for (register, entry) in state.numbered_registers {
+            self.registers
+                .restore_numbered(register, RegisterContent::from_shada_entry(entry));
+        }
+
         for (name, mark) in state.global_marks {
             self.marks.set_global(name, mark.path, mark.line, mark.col);
         }
 
         self.search.history = state.search_history;
+
+        self.jump_list.restore(
+            state
+                .jumplist
+                .into_iter()
+                .map(|entry| JumpLocation {
+                    path: Some(entry.path),
+                    line: entry.line,
+                    col: entry.col,
+                })
+                .collect(),
+        );
     }
 
     /// Build a project-wide replace preview and open it as a read-only buffer.
