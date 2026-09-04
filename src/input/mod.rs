@@ -205,6 +205,14 @@ pub enum KeyAction {
     SearchWordForwardAnywhere,
     /// g#: like # but without word boundaries
     SearchWordBackwardAnywhere,
+    /// [<Space>: add count blank lines above the cursor line
+    BlankLinesAbove(usize),
+    /// ]<Space>: add count blank lines below the cursor line
+    BlankLinesBelow(usize),
+    /// [b: go back count buffers
+    BufferPrev(usize),
+    /// ]b: go forward count buffers
+    BufferNext(usize),
     /// Search word under cursor backward (#)
     SearchWordBackward,
     /// Search forward and select the match (gn)
@@ -1560,6 +1568,23 @@ impl InputState {
                 KeyAction::NextDiagnostic
             }
             // [d - go to previous diagnostic
+            // Neovim defaults: [<Space> / ]<Space> blank lines, [b / ]b buffers
+            ('[', _, KeyCode::Char(' ')) => {
+                self.reset();
+                KeyAction::BlankLinesAbove(count)
+            }
+            (']', _, KeyCode::Char(' ')) => {
+                self.reset();
+                KeyAction::BlankLinesBelow(count)
+            }
+            ('[', KeyModifiers::NONE, KeyCode::Char('b')) => {
+                self.reset();
+                KeyAction::BufferPrev(count)
+            }
+            (']', KeyModifiers::NONE, KeyCode::Char('b')) => {
+                self.reset();
+                KeyAction::BufferNext(count)
+            }
             ('[', KeyModifiers::NONE, KeyCode::Char('d')) => {
                 self.reset();
                 KeyAction::PrevDiagnostic
@@ -2415,6 +2440,26 @@ mod tests {
     #[test]
     fn normal_zz_maps_to_write_quit_if_modified() {
         assert_write_quit_if_modified(&[shift('Z'), shift('Z')]);
+    }
+
+    #[test]
+    fn bracket_space_and_bracket_b_map_with_counts() {
+        match run(&[key('['), key(' ')]) {
+            KeyAction::BlankLinesAbove(1) => {}
+            other => panic!("expected BlankLinesAbove(1), got {other:?}"),
+        }
+        match run(&[key('2'), key(']'), key(' ')]) {
+            KeyAction::BlankLinesBelow(2) => {}
+            other => panic!("expected BlankLinesBelow(2), got {other:?}"),
+        }
+        match run(&[key('['), key('b')]) {
+            KeyAction::BufferPrev(1) => {}
+            other => panic!("expected BufferPrev(1), got {other:?}"),
+        }
+        match run(&[key('3'), key(']'), key('b')]) {
+            KeyAction::BufferNext(3) => {}
+            other => panic!("expected BufferNext(3), got {other:?}"),
+        }
     }
 
     #[test]

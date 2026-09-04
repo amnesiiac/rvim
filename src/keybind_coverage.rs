@@ -93,6 +93,26 @@ const KEYBIND_COVERAGE: &[KeybindCoverage] = &[
         "normal_ctrl_caret_toggles_between_the_last_two_buffers",
     ),
     nevi_regression(
+        "[b",
+        "Go to the previous buffer",
+        "bracket_b_cycles_buffers_with_a_count",
+    ),
+    nevi_regression(
+        "]b",
+        "Go to the next buffer",
+        "bracket_b_cycles_buffers_with_a_count",
+    ),
+    vim_oracle(
+        "[<Space>",
+        "Add empty lines above the cursor line",
+        "blank line above moves with the text",
+    ),
+    vim_oracle(
+        "]<Space>",
+        "Add empty lines below the cursor line",
+        "blank line below",
+    ),
+    nevi_regression(
         "]m",
         "Move to next method/function start (tree-sitter)",
         "method_motion_jumps_between_function_starts",

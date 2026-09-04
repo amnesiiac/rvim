@@ -71,6 +71,20 @@ desc = "Switch to the alternate buffer"
 status = "implemented"
 vim_default = true
 
+[[normal.file]]
+key = "[b"
+action = "buffer_prev"
+desc = "Go to the previous buffer, count moves several"
+status = "implemented"
+vim_default = true
+
+[[normal.file]]
+key = "]b"
+action = "buffer_next"
+desc = "Go to the next buffer, count moves several"
+status = "implemented"
+vim_default = true
+
 # ----------------------------------------------------------------------------
 # Movement - Basic cursor movement
 # ----------------------------------------------------------------------------
@@ -585,6 +599,20 @@ vim_default = true
 key = "<C-x>"
 action = "subtract_from_number"
 desc = "Subtract count from the number at or after the cursor"
+status = "implemented"
+vim_default = true
+
+[[normal.editing]]
+key = "[<Space>"
+action = "blank_lines_above"
+desc = "Add count empty lines above the cursor line"
+status = "implemented"
+vim_default = true
+
+[[normal.editing]]
+key = "]<Space>"
+action = "blank_lines_below"
+desc = "Add count empty lines below the cursor line"
 status = "implemented"
 vim_default = true
 

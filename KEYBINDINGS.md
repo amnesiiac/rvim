@@ -375,6 +375,7 @@ Operators are commands that wait for a motion. For example, `d` (delete) + `w` (
 | `r{char}` / `{n}r{char}` | Replace exactly one/count characters; `Enter` replaces them with one newline |
 | `R` / `{n}R` | Enter replace mode; a count repeats the entered replacement text |
 | `.` / `{n}.` | Repeat the last change; a count replaces the change's original count |
+| `[<Space>` / `]<Space>` | Add an empty line above / below the cursor line, a count adds several |
 
 > **Examples:**
 > - `dw` - Delete from cursor to start of next word
@@ -1026,6 +1027,7 @@ While typing an Ex command after `:`.
 | `:bn` | Next buffer |
 | `:bp` | Previous buffer |
 | `Ctrl+^` | Switch to the alternate buffer, the one this window showed last (reopens it if closed) |
+| `[b` / `]b` | Previous / next buffer, a count moves several |
 | `:bd` / `:bdelete` | Close current buffer (fails if unsaved) |
 | `:bd!` / `:bdelete!` | Force close current buffer |
 

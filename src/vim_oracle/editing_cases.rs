@@ -608,6 +608,54 @@ pub(super) const EDITING_CASES: &[OracleCase] = &[
         initial_text: "one\ntwo\nthree\nfour\n",
         keys: "3gJu",
     },
+    // [<Space> and ]<Space> (Neovim defaults) add blank lines around the
+    // cursor line. Above pushes the cursor down with its text, keeping the
+    // column; below leaves it alone. Count, dot repeat, and undo apply.
+    OracleCase {
+        name: "blank line below",
+        initial_text: "one\ntwo\nthree\n",
+        keys: "j]<Space>",
+    },
+    OracleCase {
+        name: "blank line above moves with the text",
+        initial_text: "one\ntwo\nthree\n",
+        keys: "jll[<Space>",
+    },
+    OracleCase {
+        name: "counted blank lines below",
+        initial_text: "one\ntwo\nthree\n",
+        keys: "j2]<Space>",
+    },
+    OracleCase {
+        name: "counted blank lines above",
+        initial_text: "one\ntwo\nthree\n",
+        keys: "j2[<Space>",
+    },
+    OracleCase {
+        name: "blank line below on last line",
+        initial_text: "one\ntwo\n",
+        keys: "G]<Space>",
+    },
+    OracleCase {
+        name: "blank line below on last line without trailing newline",
+        initial_text: "one\ntwo",
+        keys: "G]<Space>",
+    },
+    OracleCase {
+        name: "blank line above on first line",
+        initial_text: "one\ntwo\n",
+        keys: "[<Space>",
+    },
+    OracleCase {
+        name: "dot repeats counted blank lines below",
+        initial_text: "one\ntwo\n",
+        keys: "2]<Space>.",
+    },
+    OracleCase {
+        name: "undo removes counted blank lines above",
+        initial_text: "one\ntwo\nthree\n",
+        keys: "jll2[<Space>u",
+    },
     OracleCase {
         name: "join without added space",
         initial_text: "foo \nbar\n",

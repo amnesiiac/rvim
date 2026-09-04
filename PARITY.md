@@ -9,14 +9,14 @@ the test suite enforces, so it cannot drift from what is actually verified.
 
 ## Summary
 
-- **352 keybinds implemented** ([KEYBINDINGS.md](KEYBINDINGS.md)), **75 planned** ([KEYBINDS_ROADMAP.md](KEYBINDS_ROADMAP.md))
-- **184 keybinds in the coverage inventory**, each mapped to the automated test that protects it:
-  - 172 verified against real Neovim (v0.11.3) by the Vim oracle
-  - 11 protected by focused Nevi regression tests
+- **356 keybinds implemented** ([KEYBINDINGS.md](KEYBINDINGS.md)), **71 planned** ([KEYBINDS_ROADMAP.md](KEYBINDS_ROADMAP.md))
+- **188 keybinds in the coverage inventory**, each mapped to the automated test that protects it:
+  - 174 verified against real Neovim (v0.11.3) by the Vim oracle
+  - 13 protected by focused Nevi regression tests
   - 1 covered as default-keymap plumbing with dedicated tests
-- **481 oracle cases**: motions (144), editing (135), increment (31), insert-entry (17), open-line (20), replace (27), search (51), text-objects (30), undo-redo (2), visual (24)
+- **490 oracle cases**: motions (144), editing (144), increment (31), insert-entry (17), open-line (20), replace (27), search (51), text-objects (30), undo-redo (2), visual (24)
 - **0 tracked coverage gaps**
-- **239 of 446 documented keybind rows map to an inventoried keybind**; the rest work today but are not yet individually tracked ([full list below](#documented-but-not-yet-inventoried))
+- **241 of 448 documented keybind rows map to an inventoried keybind**; the rest work today but are not yet individually tracked ([full list below](#documented-but-not-yet-inventoried))
 
 ## How the Vim oracle works
 
@@ -57,6 +57,8 @@ claim protection.
 | `]}` | Move to next unmatched } | `unmatched close brace` |
 | `[(` | Move to previous unmatched ( | `unmatched open paren skips nested pair` |
 | `])` | Move to next unmatched ) | `unmatched close paren skips nested pair` |
+| `[<Space>` | Add empty lines above the cursor line | `blank line above moves with the text` |
+| `]<Space>` | Add empty lines below the cursor line | `blank line below` |
 | `{` | Move to previous paragraph | `paragraph backward` |
 | `}` | Move to next paragraph | `paragraph forward` |
 | `(` | Move to previous sentence | `sentence backward` |
@@ -218,6 +220,8 @@ Nevi-owned behavior with no Vim equivalent to compare against.
 | `ZZ` | Save if modified and quit | `normal_zz_writes_modified_file_and_quits` |
 | `ZQ` | Quit without saving | `normal_zq_quits_without_saving` |
 | `<C-^>` | Switch to the alternate buffer | `normal_ctrl_caret_toggles_between_the_last_two_buffers` |
+| `[b` | Go to the previous buffer | `bracket_b_cycles_buffers_with_a_count` |
+| `]b` | Go to the next buffer | `bracket_b_cycles_buffers_with_a_count` |
 | `]m` | Move to next method/function start (tree-sitter) | `method_motion_jumps_between_function_starts` |
 | `[m` | Move to previous method/function start (tree-sitter) | `method_motion_jumps_between_function_starts` |
 | `]M` | Move to next method/function end (tree-sitter) | `method_motion_ends_land_on_closing_brace` |
