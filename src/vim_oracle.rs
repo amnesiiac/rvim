@@ -1293,11 +1293,14 @@ vim.o.wrap = {}
 vim.api.nvim_win_set_width(0, {})
 vim.api.nvim_win_set_height(0, {})
 vim.api.nvim_feedkeys(keys, "xt", false)
+-- nvim_win_get_cursor reports a byte column; Nevi columns count characters,
+-- so use charcol() or any case whose cursor ends after a multibyte character
+-- diverges on the column alone.
 local pos = vim.api.nvim_win_get_cursor(0)
 local snapshot = {{
   lines = vim.api.nvim_buf_get_lines(0, 0, -1, false),
   cursor_line = pos[1] - 1,
-  cursor_col = pos[2],
+  cursor_col = vim.fn.charcol(".") - 1,
   viewport_top = vim.fn.line("w0") - 1,
   mode = vim.api.nvim_get_mode().mode,
 }}

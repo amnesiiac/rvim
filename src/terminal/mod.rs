@@ -8354,8 +8354,10 @@ fn handle_insert_mode(editor: &mut Editor, key: KeyEvent) {
                 editor.completion.select_next();
                 return;
             }
-            // Accept completion
-            (KeyModifiers::NONE, KeyCode::Enter) | (KeyModifiers::NONE, KeyCode::Tab) => {
+            // Accept completion (Ctrl+y is Vim's accept while the popup is up)
+            (KeyModifiers::NONE, KeyCode::Enter)
+            | (KeyModifiers::NONE, KeyCode::Tab)
+            | (KeyModifiers::CONTROL, KeyCode::Char('y')) => {
                 // Get completion info before modifying state
                 let completion_info = editor.completion.selected_item().cloned();
 
@@ -8396,8 +8398,8 @@ fn handle_insert_mode(editor: &mut Editor, key: KeyEvent) {
                 editor.completion.hide();
                 return;
             }
-            // Cancel completion
-            (KeyModifiers::NONE, KeyCode::Esc) => {
+            // Cancel completion (Ctrl+e is Vim's close-popup while it is up)
+            (KeyModifiers::NONE, KeyCode::Esc) | (KeyModifiers::CONTROL, KeyCode::Char('e')) => {
                 editor.completion.hide();
                 return;
             }
@@ -8520,6 +8522,25 @@ fn handle_insert_mode(editor: &mut Editor, key: KeyEvent) {
         (KeyModifiers::CONTROL, KeyCode::Char('v'))
         | (KeyModifiers::CONTROL, KeyCode::Char('q')) => {
             editor.pending_insert_literal = true;
+        }
+
+        // Copy the character under the cursor's screen column from the line
+        // below / above (Ctrl+e / Ctrl+y). Vim's redo buffer keeps the copied
+        // character rather than the key, so `.` re-inserts the same text; a
+        // press that copied nothing leaves no trace in the change.
+        (KeyModifiers::CONTROL, KeyCode::Char('e'))
+        | (KeyModifiers::CONTROL, KeyCode::Char('y')) => {
+            let above = key.code == KeyCode::Char('y');
+            let replay: Vec<KeyEvent> = editor
+                .insert_char_from_adjacent_line(above)
+                .map(|ch| {
+                    vec![
+                        KeyEvent::new(KeyCode::Char('v'), KeyModifiers::CONTROL),
+                        KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE),
+                    ]
+                })
+                .unwrap_or_default();
+            editor.dot_repeat.replace_last_key(&replay);
         }
 
         // Execute one normal-mode command, then return to insert mode (Ctrl+o)
@@ -14379,6 +14400,91 @@ mod tests {
         handle_key(&mut editor, esc_key());
 
         assert_eq!(editor.buffer().content(), "\u{15}\n");
+    }
+
+    #[test]
+    fn insert_ctrl_e_copies_by_screen_column_past_a_tab() {
+        // The tab on the cursor line is 4 columns wide, so the character
+        // copied from below is the one under column 4, not char index 1.
+        // Tabs are oracle-invisible: nvim's tabstop is 8, Nevi's default 4.
+        let mut editor = Editor::default();
+        assert_eq!(editor.settings.editor.tab_width, 4);
+        editor.replace_buffer_content("\tX\nabcdefgh\n");
+        handle_key(&mut editor, key('l'));
+        handle_key(&mut editor, key('i'));
+        handle_key(&mut editor, ctrl_key('e'));
+        handle_key(&mut editor, esc_key());
+
+        assert_eq!(editor.buffer().content(), "\teX\nabcdefgh\n");
+    }
+
+    #[test]
+    fn insert_ctrl_y_copies_a_tab_that_spans_the_cursor_column() {
+        let mut editor = Editor::default();
+        editor.replace_buffer_content("\tz\nabc\n");
+        handle_key(&mut editor, key('j'));
+        handle_key(&mut editor, key('l'));
+        handle_key(&mut editor, key('l'));
+        handle_key(&mut editor, key('i'));
+        handle_key(&mut editor, ctrl_key('y'));
+        handle_key(&mut editor, esc_key());
+
+        assert_eq!(editor.buffer().content(), "\tz\nab\tc\n");
+    }
+
+    #[test]
+    fn insert_ctrl_e_that_copied_nothing_is_dropped_from_dot_repeat() {
+        // On the last line <C-e> has nothing to copy. Replaying the key on
+        // another line would insert something Vim never did.
+        let mut editor = Editor::default();
+        editor.replace_buffer_content("ab\ncd\n");
+        handle_key(&mut editor, key('j'));
+        handle_key(&mut editor, key('i'));
+        handle_key(&mut editor, ctrl_key('e'));
+        handle_key(&mut editor, key('x'));
+        handle_key(&mut editor, esc_key());
+        handle_key(&mut editor, key('k'));
+        handle_key(&mut editor, key('.'));
+
+        assert_eq!(editor.buffer().content(), "xab\nxcd\n");
+    }
+
+    #[test]
+    fn insert_ctrl_e_closes_the_completion_popup_instead_of_copying() {
+        // Vim: with the popup up, Ctrl+e ends completion and keeps the typed
+        // text. Without the popup this press would copy the `l` from below.
+        let mut editor = Editor::default();
+        editor.replace_buffer_content("de\nbelow\n");
+        handle_key(&mut editor, shift_key('A'));
+        assert_eq!(editor.mode, Mode::Insert);
+        editor.show_completions(Vec::new(), 0, 0, false);
+        assert!(editor.completion.active);
+
+        handle_key(&mut editor, ctrl_key('e'));
+
+        assert!(!editor.completion.active);
+        assert_eq!(editor.mode, Mode::Insert);
+        assert_eq!(editor.buffer().content(), "de\nbelow\n");
+    }
+
+    #[test]
+    fn insert_ctrl_y_goes_to_the_completion_popup_instead_of_copying() {
+        // Vim: with the popup up, Ctrl+y accepts the selection (the same
+        // path as Enter and Tab). An empty popup keeps this test off the
+        // accept path's frecency file write; without the popup this press
+        // would copy the `o` from above.
+        let mut editor = Editor::default();
+        editor.replace_buffer_content("above\nde\n");
+        handle_key(&mut editor, key('j'));
+        handle_key(&mut editor, shift_key('A'));
+        assert_eq!(editor.mode, Mode::Insert);
+        editor.show_completions(Vec::new(), 1, 0, false);
+
+        handle_key(&mut editor, ctrl_key('y'));
+
+        assert!(!editor.completion.active);
+        assert_eq!(editor.mode, Mode::Insert);
+        assert_eq!(editor.buffer().content(), "above\nde\n");
     }
 
     #[test]

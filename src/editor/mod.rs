@@ -4686,6 +4686,27 @@ impl Editor {
         }
     }
 
+    /// The character covering screen column `display_col` in `chars`, like
+    /// Vim's `ins_copychar`: a tab or wide character that spans the column
+    /// is returned whole. None once the line ends before the column.
+    fn char_at_display_col(
+        chars: impl Iterator<Item = char>,
+        display_col: usize,
+        tab_width: usize,
+    ) -> Option<char> {
+        let mut width = 0;
+        for ch in chars.take_while(|ch| *ch != '\n') {
+            if width >= display_col {
+                return Some(ch);
+            }
+            width += Self::display_char_width(ch, tab_width);
+            if width > display_col {
+                return Some(ch);
+            }
+        }
+        None
+    }
+
     fn display_width_between_cols(
         line: &str,
         start_col: usize,
@@ -5878,6 +5899,35 @@ impl Editor {
             ));
             self.buffers[self.current_buffer_idx].insert_str(line_idx, insert_col, &inserted_text);
         }
+    }
+
+    /// Vim's insert-mode `Ctrl+y` / `Ctrl+e`: insert the character that sits
+    /// in the cursor's screen column on the line above / below, and return
+    /// it. Matching by display width means the copied character is the one
+    /// the eye sees under the cursor even past tabs or wide characters.
+    /// Nothing happens when there is no such line or it ends before the
+    /// column (Vim beeps). Inserted like a literal, so no auto pair fires.
+    pub fn insert_char_from_adjacent_line(&mut self, above: bool) -> Option<char> {
+        let source_line = if above {
+            self.cursor.line.checked_sub(1)?
+        } else {
+            self.cursor.line + 1
+        };
+        let tab_width = self.get_effective_tab_width();
+        let buffer = self.buffer();
+        if source_line >= buffer.addressable_line_count() {
+            return None;
+        }
+        let display_col: usize = buffer
+            .line(self.cursor.line)?
+            .chars()
+            .take(self.cursor.col)
+            .map(|ch| Self::display_char_width(ch, tab_width))
+            .sum();
+        let ch =
+            Self::char_at_display_col(buffer.line(source_line)?.chars(), display_col, tab_width)?;
+        self.insert_char(ch);
+        Some(ch)
     }
 
     /// Insert a character at cursor position

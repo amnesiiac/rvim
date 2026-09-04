@@ -761,4 +761,81 @@ pub(super) const EDITING_CASES: &[OracleCase] = &[
         initial_text: "\n",
         keys: "i<C-v><C-y><Esc>.",
     },
+    // Insert <C-y>/<C-e> copy the character in the cursor's screen column
+    // from the line above/below, one per press. Texts are asymmetric so a
+    // copy from the wrong line or column shows up in the snapshot.
+    OracleCase {
+        name: "insert ctrl-y copies char from line above",
+        initial_text: "abc\nxyz\n",
+        keys: "jli<C-y><Esc>",
+    },
+    OracleCase {
+        name: "insert ctrl-e copies char from line below",
+        initial_text: "abc\nxyz\n",
+        keys: "li<C-e><Esc>",
+    },
+    // Each copy advances the cursor, so presses walk along the other line
+    // and stop inserting once it runs out.
+    OracleCase {
+        name: "repeated ctrl-e walks along the line below",
+        initial_text: "ab\nwxyz\n",
+        keys: "A<C-e><C-e><C-e><Esc>",
+    },
+    // No line to copy from, or a line that ends before the column: Vim
+    // beeps and stays in insert mode.
+    OracleCase {
+        name: "ctrl-y on the first line inserts nothing",
+        initial_text: "abc\n",
+        keys: "li<C-y>Q<Esc>",
+    },
+    OracleCase {
+        name: "ctrl-e on the last line inserts nothing",
+        initial_text: "abc\nxyz\n",
+        keys: "jli<C-e>Q<Esc>",
+    },
+    OracleCase {
+        name: "ctrl-e past the end of a shorter line inserts nothing",
+        initial_text: "abcdef\nxy\n",
+        keys: "4li<C-e>Q<Esc>",
+    },
+    // Columns are screen columns: a wide character counts for two, and a
+    // character that spans the cursor column is copied whole.
+    OracleCase {
+        name: "ctrl-y matches wide characters by screen column",
+        initial_text: "日本\nabcd\n",
+        keys: "jlli<C-y><Esc>",
+    },
+    OracleCase {
+        name: "ctrl-e from a wide character copies the char in its column",
+        initial_text: "日本\nabcd\n",
+        keys: "li<C-e><Esc>",
+    },
+    OracleCase {
+        name: "ctrl-e inside a wide character copies the spanning char",
+        initial_text: "abcd\n日本\n",
+        keys: "3li<C-e><Esc>",
+    },
+    // Copied like a literal: no auto pair for a paren.
+    OracleCase {
+        name: "ctrl-e copies an open paren without auto pairing",
+        initial_text: "x\n(\n",
+        keys: "i<C-e><Esc>",
+    },
+    OracleCase {
+        name: "undo removes ctrl-y copies with the session",
+        initial_text: "abc\nxyz\n",
+        keys: "ji<C-y><C-y><Esc>u",
+    },
+    OracleCase {
+        name: "counted insert repeats the copied character",
+        initial_text: "ab\ncd\n",
+        keys: "3i<C-e><Esc>",
+    },
+    // Vim's redo buffer holds the copied character, not the key, so `.`
+    // re-inserts the same text instead of copying from the new neighbour.
+    OracleCase {
+        name: "dot repeat re-inserts the copied character not the key",
+        initial_text: "ab\ncd\nef\n",
+        keys: "i<C-e><Esc>j.",
+    },
 ];
