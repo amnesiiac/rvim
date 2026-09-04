@@ -327,6 +327,16 @@ const KEYBIND_COVERAGE: &[KeybindCoverage] = &[
         "Insert register contents",
         "insert ctrl-r pastes named register",
     ),
+    insert_oracle(
+        "<C-e>",
+        "Insert the character below the cursor",
+        "insert ctrl-e copies char from line below",
+    ),
+    insert_oracle(
+        "<C-y>",
+        "Insert the character above the cursor",
+        "insert ctrl-y copies char from line above",
+    ),
     vim_oracle(
         "<C-a>",
         "Add count to the number at or after the cursor",

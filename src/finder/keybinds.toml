@@ -1438,6 +1438,20 @@ desc = "Execute one normal mode command"
 status = "implemented"
 vim_default = true
 
+[[insert.editing]]
+key = "<C-e>"
+action = "insert_char_below"
+desc = "Insert the character from the line below the cursor"
+status = "implemented"
+vim_default = true
+
+[[insert.editing]]
+key = "<C-y>"
+action = "insert_char_above"
+desc = "Insert the character from the line above the cursor"
+status = "implemented"
+vim_default = true
+
 # ----------------------------------------------------------------------------
 # Copilot (in insert mode) - ALL IMPLEMENTED
 # ----------------------------------------------------------------------------
