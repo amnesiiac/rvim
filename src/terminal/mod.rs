@@ -7485,7 +7485,10 @@ fn handle_normal_mode(editor: &mut Editor, key: KeyEvent) {
 
     // Check if this key is the leader key
     let t_leader_check = std::time::Instant::now();
-    if editor.keymap.has_leader_mappings() {
+    // A pending key (`[`, `d`, `g`, ...) owns the next press, so the leader
+    // must not steal it: `[<Space>` adds a blank line rather than opening a
+    // leader sequence.
+    if editor.keymap.has_leader_mappings() && !editor.input_state.has_pending_sequence() {
         if editor.keymap.is_leader_key(key) {
             editor.leader_sequence = Some(String::new());
             editor.leader_sequence_start = Some(Instant::now());
@@ -7838,6 +7841,26 @@ fn handle_normal_mode(editor: &mut Editor, key: KeyEvent) {
 
         KeyAction::SearchWordBackwardAnywhere => {
             editor.search_word_backward_anywhere();
+        }
+
+        KeyAction::BlankLinesAbove(count) => {
+            editor.add_blank_lines(count, true);
+        }
+
+        KeyAction::BlankLinesBelow(count) => {
+            editor.add_blank_lines(count, false);
+        }
+
+        KeyAction::BufferPrev(count) => {
+            for _ in 0..count.max(1) {
+                editor.prev_buffer();
+            }
+        }
+
+        KeyAction::BufferNext(count) => {
+            for _ in 0..count.max(1) {
+                editor.next_buffer();
+            }
         }
 
         KeyAction::SearchSelectNext(count) => {
@@ -15674,6 +15697,118 @@ mod tests {
         assert_eq!(editor.buffer().content(), "second\n");
 
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn bracket_b_cycles_buffers_with_a_count() {
+        let tmp = unique_temp_dir("nevi_bracket_b");
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let files: Vec<_> = ["a.txt", "b.txt", "c.txt"]
+            .iter()
+            .map(|name| {
+                let path = tmp.join(name);
+                std::fs::write(&path, format!("{name}\n")).expect("write");
+                path
+            })
+            .collect();
+
+        let mut editor = Editor::default();
+        for path in &files {
+            editor.open_file(path.clone()).expect("open");
+        }
+        assert_eq!(editor.buffer().path.as_ref(), Some(&files[2]));
+
+        handle_key(&mut editor, key(']'));
+        handle_key(&mut editor, key('b'));
+        assert_eq!(editor.buffer().path.as_ref(), Some(&files[0]), "]b wraps");
+
+        handle_key(&mut editor, key('['));
+        handle_key(&mut editor, key('b'));
+        assert_eq!(
+            editor.buffer().path.as_ref(),
+            Some(&files[2]),
+            "[b wraps back"
+        );
+
+        handle_key(&mut editor, key('2'));
+        handle_key(&mut editor, key('['));
+        handle_key(&mut editor, key('b'));
+        assert_eq!(
+            editor.buffer().path.as_ref(),
+            Some(&files[0]),
+            "2[b goes back two"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn bracket_space_is_not_taken_by_the_space_leader() {
+        let mut editor = Editor::default();
+        editor.replace_buffer_content("one\ntwo\n");
+        assert!(
+            editor.keymap.has_leader_mappings(),
+            "default config maps a leader"
+        );
+        editor.cursor.line = 1;
+
+        handle_key(&mut editor, key(']'));
+        handle_key(&mut editor, key(' '));
+
+        assert_eq!(editor.buffer().content(), "one\ntwo\n\n");
+        assert!(editor.leader_sequence.is_none());
+    }
+
+    #[test]
+    fn bracket_left_space_adds_blank_above_with_space_leader() {
+        let mut editor = Editor::default();
+        editor.replace_buffer_content("one\ntwo\n");
+        assert!(editor.keymap.has_leader_mappings());
+        editor.cursor.line = 1;
+
+        handle_key(&mut editor, key('['));
+        handle_key(&mut editor, key(' '));
+
+        assert_eq!(editor.buffer().content(), "one\n\ntwo\n");
+        assert!(editor.leader_sequence.is_none());
+    }
+
+    #[test]
+    fn bracket_space_does_nothing_in_a_read_only_buffer() {
+        let tmp = unique_temp_dir("nevi_bracket_space_ro");
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let path = tmp.join("ro.txt");
+        std::fs::write(&path, "one\ntwo\n").expect("write file");
+
+        let mut editor = Editor::default();
+        editor.open_file_read_only(path).expect("open read-only");
+        assert!(editor.buffer().is_read_only());
+
+        handle_key(&mut editor, key(']'));
+        handle_key(&mut editor, key(' '));
+
+        assert_eq!(editor.buffer().content(), "one\ntwo\n");
+        assert_eq!(
+            editor.status_message.as_deref(),
+            Some("Buffer is read-only")
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn space_leader_yields_to_any_pending_sequence_not_just_brackets() {
+        // The leader gate skips while a sequence is pending, so `f<Space>`
+        // finds the next literal space instead of opening the Space leader.
+        let mut editor = Editor::default();
+        editor.replace_buffer_content("ab cd\n");
+        assert!(editor.keymap.has_leader_mappings());
+
+        handle_key(&mut editor, key('f'));
+        handle_key(&mut editor, key(' '));
+
+        assert!(editor.leader_sequence.is_none());
+        assert_eq!(editor.cursor.col, 2);
     }
 
     #[test]

@@ -3393,6 +3393,35 @@ impl Editor {
         self.split_layout
     }
 
+    /// `[<Space>` / `]<Space>` (Neovim defaults): add `count` blank lines
+    /// above or below the cursor line. Above pushes the cursor down with
+    /// its text and keeps the column; one undo step either way.
+    pub fn add_blank_lines(&mut self, count: usize, above: bool) {
+        if self.reject_read_only_edit() {
+            return;
+        }
+        let count = count.max(1);
+        let line = self.cursor.line;
+        let col = if above {
+            0
+        } else {
+            self.buffers[self.current_buffer_idx].line_len(line)
+        };
+        let text = "\n".repeat(count);
+
+        self.begin_change();
+        self.undo_stack
+            .record_change(Change::insert(line, col, text.clone()));
+        self.buffers[self.current_buffer_idx].insert_str(line, col, &text);
+        self.buffers[self.current_buffer_idx].mark_modified();
+        if above {
+            self.cursor.line += count;
+        }
+        self.undo_stack
+            .end_undo_group(self.cursor.line, self.cursor.col);
+        self.scroll_to_cursor();
+    }
+
     /// Switch to the next buffer
     pub fn next_buffer(&mut self) {
         if self.buffers.len() > 1 {

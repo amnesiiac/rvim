@@ -13,6 +13,7 @@
 
 ### Vim Compatibility
 
+- Added the Neovim 0.11 defaults `[<Space>` and `]<Space>` to add empty lines above or below the cursor line, with a count, dot repeat, and one-step undo, and `[b` and `]b` to move through buffers with a count. A key that is waiting for its second half (`[`, `d`, `g`) now keeps the next press, so the Space leader no longer swallows `[<Space>`. Blank lines verified against real Neovim.
 - Session persistence now also covers the numbered delete-history registers `"1`-`"9` and the jumplist. After a restart, `"1p` recovers the last session's delete and `Ctrl+o` walks back through its navigation history. Jumps in unsaved scratch buffers stay session-only, and the jumplist is capped at 100 entries like the in-editor list.
 - Added `g*` and `g#`, the word searches that also match inside longer words. The plain word goes into the pattern and the history, so `n`, `N`, and `/` then Up all keep the looser match. Verified against real Neovim.
 - Added the visual-mode operators `gu`, `gU`, `g~`, `r{char}`, `J`, `gJ`, and `=` on a selection. `r{char}` replaces every selected character, `J` and `gJ` join the selected lines (at least two), and `=` re-indents them. Along the way, the existing `u`, `U`, and `~` on a block selection now change only the block instead of everything between its corners, and all case operators leave the cursor at the start of the selection like Vim. Verified against real Neovim in a new visual oracle category, except `=`, which follows Nevi's own indenter.
