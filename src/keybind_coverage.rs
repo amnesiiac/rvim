@@ -466,6 +466,26 @@ const KEYBIND_COVERAGE: &[KeybindCoverage] = &[
         "linewise paste after and move",
     ),
     vim_oracle(
+        "]p",
+        "Paste after, matching the current line's indent",
+        "bracket p pastes below with the current indent",
+    ),
+    vim_oracle(
+        "[p",
+        "Paste before, matching the current line's indent",
+        "bracket open p pastes above with the current indent",
+    ),
+    vim_oracle(
+        "[P",
+        "Paste before with adjusted indent, capital alias of [p",
+        "bracket open P pastes above with the current indent",
+    ),
+    vim_oracle(
+        "]P",
+        "Paste before with adjusted indent, close-bracket alias of [p",
+        "bracket close P pastes above with the current indent",
+    ),
+    vim_oracle(
         "gP",
         "Paste before, cursor after pasted text",
         "linewise paste before and move",

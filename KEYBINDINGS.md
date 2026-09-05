@@ -371,6 +371,8 @@ Operators are commands that wait for a motion. For example, `d` (delete) + `w` (
 | `p` / `{n}p` | Paste after cursor |
 | `P` / `{n}P` | Paste before cursor |
 | `gp` / `{n}gp` | Paste after and leave cursor after pasted text |
+| `]p` | Paste after, adjusting the indent to the current line |
+| `[p` / `[P` / `]P` | Paste before, adjusting the indent to the current line |
 | `gP` / `{n}gP` | Paste before and leave cursor after pasted text |
 | `r{char}` / `{n}r{char}` | Replace exactly one/count characters; `Enter` replaces them with one newline |
 | `R` / `{n}R` | Enter replace mode; a count repeats the entered replacement text |

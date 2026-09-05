@@ -4,7 +4,7 @@ Nevi aims for full vim/neovim keybind compatibility. Defaults follow Neovim, and
 keybinds are configurable — sensible defaults out of the box, overridable to your
 own taste.
 
-**Status: 358 keybinds implemented, 69 planned Vim/Neovim parity defaults.**
+**Status: 360 keybinds implemented, 67 planned Vim/Neovim parity defaults.**
 
 This file tracks what's **planned** (not yet implemented). For the full list of
 keybinds that already work, see [KEYBINDINGS.md](KEYBINDINGS.md). This list comes
@@ -43,8 +43,6 @@ the larger areas, folds and quickfix before tabs and tags.
 | `gqq` | Format the current line |
 | `gw{motion}` | Format like `gq` but keep the cursor position |
 | `gww` | Format the current line, keeping the cursor position |
-| `]p` | Paste after, adjusting indent to the current line |
-| `[p` | Paste before, adjusting indent to the current line |
 | `&` | Repeat the last `:s` substitution on the current line |
 | `g&` | Repeat the last `:s` on all lines with the same flags |
 

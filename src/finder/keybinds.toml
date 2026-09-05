@@ -645,6 +645,34 @@ status = "implemented"
 vim_default = true
 
 [[normal.editing]]
+key = "]p"
+action = "paste_after_adjust_indent"
+desc = "Paste after, matching the current line's indent"
+status = "implemented"
+vim_default = true
+
+[[normal.editing]]
+key = "[p"
+action = "paste_before_adjust_indent"
+desc = "Paste before, matching the current line's indent"
+status = "implemented"
+vim_default = true
+
+[[normal.editing]]
+key = "[P"
+action = "paste_before_adjust_indent"
+desc = "Paste before, matching the current line's indent"
+status = "implemented"
+vim_default = true
+
+[[normal.editing]]
+key = "]P"
+action = "paste_before_adjust_indent"
+desc = "Paste before, matching the current line's indent"
+status = "implemented"
+vim_default = true
+
+[[normal.editing]]
 key = "gP"
 action = "paste_before_move"
 desc = "Paste before and move cursor after text"
