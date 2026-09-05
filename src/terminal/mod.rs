@@ -7851,6 +7851,22 @@ fn handle_normal_mode(editor: &mut Editor, key: KeyEvent) {
             editor.add_blank_lines(count, false);
         }
 
+        KeyAction::PasteAfterAdjustIndent(count) => {
+            let register = editor
+                .input_state
+                .take_register()
+                .or(register_before_action);
+            editor.paste_with_adjusted_indent(register, count, true);
+        }
+
+        KeyAction::PasteBeforeAdjustIndent(count) => {
+            let register = editor
+                .input_state
+                .take_register()
+                .or(register_before_action);
+            editor.paste_with_adjusted_indent(register, count, false);
+        }
+
         KeyAction::BufferPrev(count) => {
             for _ in 0..count.max(1) {
                 editor.prev_buffer();
@@ -14485,6 +14501,40 @@ mod tests {
         assert!(!editor.completion.active);
         assert_eq!(editor.mode, Mode::Insert);
         assert_eq!(editor.buffer().content(), "above\nde\n");
+    }
+
+    #[test]
+    fn bracket_p_counts_source_tabs_by_tab_width() {
+        // Tabs are oracle-invisible (Neovim tabstop 8, Nevi 4): a leading
+        // tab is 4 columns of indent here, so pasting onto an unindented
+        // line drops it entirely.
+        let mut editor = Editor::default();
+        assert_eq!(editor.settings.editor.tab_width, 4);
+        editor.replace_buffer_content("\tfoo\nq\n");
+        handle_key(&mut editor, key('y'));
+        handle_key(&mut editor, key('y'));
+        handle_key(&mut editor, key('j'));
+        handle_key(&mut editor, key(']'));
+        handle_key(&mut editor, key('p'));
+
+        assert_eq!(editor.buffer().content(), "\tfoo\nq\nfoo\n");
+        assert_eq!((editor.cursor.line, editor.cursor.col), (2, 0));
+    }
+
+    #[test]
+    fn bracket_p_writes_the_target_indent_as_spaces() {
+        // The current line is indented with a tab; the pasted line gets the
+        // same width in spaces, the unit `>>` uses.
+        let mut editor = Editor::default();
+        editor.replace_buffer_content("foo\n\tq\n");
+        handle_key(&mut editor, key('y'));
+        handle_key(&mut editor, key('y'));
+        handle_key(&mut editor, key('j'));
+        handle_key(&mut editor, key('['));
+        handle_key(&mut editor, key('p'));
+
+        assert_eq!(editor.buffer().content(), "foo\n    foo\n\tq\n");
+        assert_eq!((editor.cursor.line, editor.cursor.col), (1, 4));
     }
 
     #[test]

@@ -9,14 +9,14 @@ the test suite enforces, so it cannot drift from what is actually verified.
 
 ## Summary
 
-- **358 keybinds implemented** ([KEYBINDINGS.md](KEYBINDINGS.md)), **69 planned** ([KEYBINDS_ROADMAP.md](KEYBINDS_ROADMAP.md))
-- **190 keybinds in the coverage inventory**, each mapped to the automated test that protects it:
-  - 176 verified against real Neovim (v0.11.3) by the Vim oracle
+- **360 keybinds implemented** ([KEYBINDINGS.md](KEYBINDINGS.md)), **67 planned** ([KEYBINDS_ROADMAP.md](KEYBINDS_ROADMAP.md))
+- **194 keybinds in the coverage inventory**, each mapped to the automated test that protects it:
+  - 180 verified against real Neovim (v0.11.3) by the Vim oracle
   - 13 protected by focused Nevi regression tests
   - 1 covered as default-keymap plumbing with dedicated tests
-- **503 oracle cases**: motions (144), editing (157), increment (31), insert-entry (17), open-line (20), replace (27), search (51), text-objects (30), undo-redo (2), visual (24)
+- **519 oracle cases**: motions (144), editing (173), increment (31), insert-entry (17), open-line (20), replace (27), search (51), text-objects (30), undo-redo (2), visual (24)
 - **0 tracked coverage gaps**
-- **243 of 450 documented keybind rows map to an inventoried keybind**; the rest work today but are not yet individually tracked ([full list below](#documented-but-not-yet-inventoried))
+- **245 of 452 documented keybind rows map to an inventoried keybind**; the rest work today but are not yet individually tracked ([full list below](#documented-but-not-yet-inventoried))
 
 ## How the Vim oracle works
 
@@ -163,6 +163,10 @@ claim protection.
 | `s` | Substitute character and insert | `substitute char` |
 | `S` | Substitute entire line | `substitute line` |
 | `gp` | Paste after, cursor after pasted text | `linewise paste after and move` |
+| `]p` | Paste after, matching the current line's indent | `bracket p pastes below with the current indent` |
+| `[p` | Paste before, matching the current line's indent | `bracket open p pastes above with the current indent` |
+| `[P` | Paste before with adjusted indent, capital alias of [p | `bracket open P pastes above with the current indent` |
+| `]P` | Paste before with adjusted indent, close-bracket alias of [p | `bracket close P pastes above with the current indent` |
 | `gP` | Paste before, cursor after pasted text | `linewise paste before and move` |
 | `r{char}` | Replace exactly one character | `replace character` |
 | `R` | Enter replace mode | `counted replace mode repeats inserted text` |

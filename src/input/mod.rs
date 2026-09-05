@@ -213,6 +213,10 @@ pub enum KeyAction {
     BufferPrev(usize),
     /// ]b: go forward count buffers
     BufferNext(usize),
+    /// ]p: paste after, matching the indent of the current line
+    PasteAfterAdjustIndent(usize),
+    /// [p, [P, ]P: paste before, matching the indent of the current line
+    PasteBeforeAdjustIndent(usize),
     /// Search word under cursor backward (#)
     SearchWordBackward,
     /// Search forward and select the match (gn)
@@ -1584,6 +1588,18 @@ impl InputState {
             (']', KeyModifiers::NONE, KeyCode::Char('b')) => {
                 self.reset();
                 KeyAction::BufferNext(count)
+            }
+            // Paste with the indent adjusted to the current line. Only "]p"
+            // pastes below; [p, [P and ]P all paste above (nvim nv_put_opt).
+            (']', KeyModifiers::NONE, KeyCode::Char('p')) => {
+                self.reset();
+                KeyAction::PasteAfterAdjustIndent(count)
+            }
+            ('[', KeyModifiers::NONE, KeyCode::Char('p'))
+            | ('[', KeyModifiers::SHIFT, KeyCode::Char('P'))
+            | (']', KeyModifiers::SHIFT, KeyCode::Char('P')) => {
+                self.reset();
+                KeyAction::PasteBeforeAdjustIndent(count)
             }
             ('[', KeyModifiers::NONE, KeyCode::Char('d')) => {
                 self.reset();
