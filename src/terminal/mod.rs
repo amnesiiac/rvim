@@ -18858,6 +18858,49 @@ mod tests {
         );
         assert_eq!(editor.buffer().path.as_ref(), Some(&path));
         assert_eq!(editor.buffer().content(), "keep me\n");
+        assert_eq!(
+            editor.status_message.as_deref(),
+            Some(format!("Opened existing: {}", path.display()).as_str())
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn new_file_command_creates_and_opens_a_missing_file() {
+        let tmp = unique_temp_dir("nevi_new_missing");
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let path = tmp.join("fresh.txt");
+        let mut editor = Editor::default();
+
+        execute_command(&mut editor, Command::NewFile(path.clone()));
+
+        assert_eq!(std::fs::read_to_string(&path).expect("read fresh"), "");
+        assert_eq!(editor.buffer().path.as_ref(), Some(&path));
+        assert_eq!(editor.buffer().content(), "");
+        assert_eq!(
+            editor.status_message.as_deref(),
+            Some(format!("Created: {}", path.display()).as_str())
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn new_file_command_creates_missing_parent_directories() {
+        let tmp = unique_temp_dir("nevi_new_nested");
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let path = tmp.join("sub").join("dir").join("deep.txt");
+        let mut editor = Editor::default();
+
+        execute_command(&mut editor, Command::NewFile(path.clone()));
+
+        assert!(path.is_file());
+        assert_eq!(editor.buffer().path.as_ref(), Some(&path));
+        assert_eq!(
+            editor.status_message.as_deref(),
+            Some(format!("Created: {}", path.display()).as_str())
+        );
 
         let _ = std::fs::remove_dir_all(&tmp);
     }
