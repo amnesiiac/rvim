@@ -10392,18 +10392,28 @@ fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> std::io::
     Ok(())
 }
 
-/// Execute a parsed command
-/// Helper to create a file and open it in the editor
+/// Helper to create a file and open it in the editor.
+///
+/// `create_new` refuses an existing file atomically, so `:new`/`:touch` on a
+/// path that already exists opens it (like Vim's `:new file`) instead of
+/// truncating it to zero bytes.
 fn create_and_open_file(editor: &mut Editor, path: std::path::PathBuf) -> CommandResult {
-    match std::fs::File::create(&path) {
-        Ok(_) => {
-            if let Err(e) = editor.open_file(path.clone()) {
-                CommandResult::Error(format!("Created file but failed to open: {}", e))
-            } else {
-                CommandResult::Message(format!("Created: {}", path.display()))
-            }
-        }
-        Err(e) => CommandResult::Error(format!("Failed to create file: {}", e)),
+    let created = match std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+    {
+        Ok(_) => true,
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => false,
+        Err(e) => return CommandResult::Error(format!("Failed to create file: {}", e)),
+    };
+    if let Err(e) = editor.open_file(path.clone()) {
+        return CommandResult::Error(format!("Failed to open {}: {}", path.display(), e));
+    }
+    if created {
+        CommandResult::Message(format!("Created: {}", path.display()))
+    } else {
+        CommandResult::Message(format!("Opened existing: {}", path.display()))
     }
 }
 
@@ -18777,5 +18787,28 @@ mod tests {
         handle_key(&mut editor, key('"'));
 
         assert_eq!(editor.buffer().content(), "\"hello world\"\n");
+    }
+
+    // `:new`/`:touch` on a path that already exists must open it (Vim's
+    // `:new file` opens the file in a split) rather than truncate it to
+    // zero bytes on the way to opening it.
+    #[test]
+    fn new_file_command_opens_an_existing_file_instead_of_truncating_it() {
+        let tmp = unique_temp_dir("nevi_new_existing");
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let path = tmp.join("keep.txt");
+        std::fs::write(&path, "keep me\n").expect("write keep");
+        let mut editor = Editor::default();
+
+        execute_command(&mut editor, Command::NewFile(path.clone()));
+
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("read keep"),
+            "keep me\n"
+        );
+        assert_eq!(editor.buffer().path.as_ref(), Some(&path));
+        assert_eq!(editor.buffer().content(), "keep me\n");
+
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }

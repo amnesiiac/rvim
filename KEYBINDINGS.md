@@ -999,7 +999,7 @@ While typing an Ex command after `:`.
 | `:xa` | Save all modified files and quit all |
 | `:e {file}` / `:edit {file}` | Edit/open a file |
 | `:e!` / `:edit!` | Reload current file and discard changes |
-| `:new {path}` / `:touch {path}` | Create a file |
+| `:new {path}` / `:touch {path}` | Create a file, or open it if it already exists |
 | `:delete` / `:rm` | Delete current file with confirmation |
 | `:delete!` / `:rm!` | Force delete current file |
 | `:rename {path}` / `:mv {path}` | Rename current file |
