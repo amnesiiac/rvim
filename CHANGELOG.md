@@ -51,6 +51,7 @@
 
 ### Interface
 
+- `:rename` and `:mv` now refuse a destination that already exists instead of silently replacing it. A case-only rename such as `Notes.txt` to `notes.txt` still works on case-insensitive filesystems.
 - The `:Keymaps` cheatsheet caught up with the editor. It had quietly stopped being updated in June and was missing everything added since: the method motions, section and unmatched-bracket motions, `gm`, `go`, `s`, several window and terminal session keys, and more. A new test now fails whenever a key documented in KEYBINDINGS.md is missing from the cheatsheet, so it cannot drift again.
 
 - Rich mode no longer draws the `~` column on rows past the end of the buffer, like Vim's `fillchars=eob:' '`. Minimal mode keeps the tildes.

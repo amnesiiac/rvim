@@ -10448,6 +10448,16 @@ fn rename_file_impl(
         }
     }
 
+    // `fs::rename` replaces the destination silently on Unix, so refuse a
+    // path that already exists. A same-inode match is allowed so a
+    // case-only rename works on case-insensitive filesystems (macOS).
+    if new_path.exists() && !is_same_file(&old_path, &new_path) {
+        return CommandResult::Error(format!(
+            "Failed to rename: {} already exists",
+            new_path.display()
+        ));
+    }
+
     // Rename the file
     match std::fs::rename(&old_path, &new_path) {
         Ok(_) => {
@@ -10456,6 +10466,22 @@ fn rename_file_impl(
             CommandResult::Message(format!("Renamed to: {}", new_path.display()))
         }
         Err(e) => CommandResult::Error(format!("Failed to rename: {}", e)),
+    }
+}
+
+/// Whether two paths name the same file on disk (same device and inode).
+fn is_same_file(a: &std::path::Path, b: &std::path::Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        match (std::fs::metadata(a), std::fs::metadata(b)) {
+            (Ok(x), Ok(y)) => x.dev() == y.dev() && x.ino() == y.ino(),
+            _ => false,
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        a == b
     }
 }
 
@@ -18900,6 +18926,58 @@ mod tests {
         assert_eq!(
             editor.status_message.as_deref(),
             Some(format!("Created: {}", path.display()).as_str())
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    // `:rename`/`:mv` onto a path that already exists must refuse, since
+    // `fs::rename` replaces the destination silently on Unix.
+    #[test]
+    fn rename_file_command_refuses_to_overwrite_an_existing_file() {
+        let tmp = unique_temp_dir("nevi_rename_existing");
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let source = tmp.join("a.txt");
+        let taken = tmp.join("b.txt");
+        std::fs::write(&source, "a\n").expect("write a");
+        std::fs::write(&taken, "b\n").expect("write b");
+        let mut editor = Editor::default();
+        editor.open_file(source.clone()).expect("open a");
+
+        execute_command(&mut editor, Command::RenameFile(taken.clone()));
+
+        assert_eq!(std::fs::read_to_string(&taken).expect("read b"), "b\n");
+        assert_eq!(std::fs::read_to_string(&source).expect("read a"), "a\n");
+        assert_eq!(editor.buffer().path.as_ref(), Some(&source));
+        assert!(
+            editor
+                .status_message
+                .as_deref()
+                .unwrap_or_default()
+                .contains("already exists")
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    // A case-only rename names the same inode on case-insensitive
+    // filesystems (macOS), so it must not be mistaken for an overwrite.
+    #[test]
+    fn rename_file_command_allows_a_case_only_rename() {
+        let tmp = unique_temp_dir("nevi_rename_case_only");
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let source = tmp.join("Notes.txt");
+        let target = tmp.join("notes.txt");
+        std::fs::write(&source, "notes\n").expect("write source");
+        let mut editor = Editor::default();
+        editor.open_file(source.clone()).expect("open source");
+
+        execute_command(&mut editor, Command::RenameFile(target.clone()));
+
+        assert_eq!(editor.buffer().path.as_ref(), Some(&target));
+        assert_eq!(
+            std::fs::read_to_string(&target).expect("read target"),
+            "notes\n"
         );
 
         let _ = std::fs::remove_dir_all(&tmp);
