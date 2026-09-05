@@ -838,4 +838,100 @@ pub(super) const EDITING_CASES: &[OracleCase] = &[
         initial_text: "ab\ncd\nef\n",
         keys: "i<C-e><Esc>j.",
     },
+    // ]p and [p paste with the indent adjusted to the current line: the
+    // first non-empty pasted line takes the current line's indent and the
+    // rest keep their indent relative to it. Only "]p" pastes below; [p,
+    // [P and ]P all paste above. Indents stay under 8 columns so Neovim's
+    // noexpandtab never turns them into tabs.
+    OracleCase {
+        name: "bracket p pastes below with the current indent",
+        initial_text: "  a\nb\n    c\n",
+        keys: "jyyj]p",
+    },
+    OracleCase {
+        name: "bracket open p pastes above with the current indent",
+        initial_text: "  a\nb\n    c\n",
+        keys: "jyyj[p",
+    },
+    OracleCase {
+        name: "bracket open P pastes above with the current indent",
+        initial_text: "  a\nb\n    c\n",
+        keys: "jyyj[P",
+    },
+    OracleCase {
+        name: "bracket close P pastes above with the current indent",
+        initial_text: "  a\nb\n    c\n",
+        keys: "jyyj]P",
+    },
+    OracleCase {
+        name: "bracket p keeps relative indent and clamps at zero",
+        initial_text: "    x\n      y\n\n  z\nq\n",
+        keys: "4yyG]p",
+    },
+    OracleCase {
+        name: "bracket p reindents whitespace-only lines",
+        initial_text: "  a\n   \n  b\n    q\n",
+        keys: "3yyG]p",
+    },
+    OracleCase {
+        name: "bracket p onto an empty line removes the indent",
+        initial_text: "    x\n  y\n\n",
+        keys: "yyG]p",
+    },
+    OracleCase {
+        name: "bracket p with a charwise register pastes like p",
+        initial_text: "ab\n    cd\n",
+        keys: "ylj]p",
+    },
+    // Neovim's nostartofline default: a counted G keeps column 0, so the
+    // charwise put lands after the first space, not after the `c`.
+    OracleCase {
+        name: "bracket p charwise keeps the column counted G lands on",
+        initial_text: "  a\nb\n    c\n",
+        keys: "2Gyl3G]p",
+    },
+    // A multi-line charwise register keeps its first line merged into the
+    // current line untouched; the lines after it get the indent fix, with
+    // the first of them taking the current line's indent. Not covered: a
+    // charwise register whose LAST line is empty or whitespace-only. Vim
+    // re-indents that merged line including the tail's own whitespace;
+    // Nevi leaves the tail alone. Rare enough to leave undone.
+    OracleCase {
+        name: "bracket p with a multiline charwise register",
+        initial_text: "ab\ncd\n    q\n",
+        keys: "vjyG]p",
+    },
+    // Plain multi-line charwise puts leave the cursor on the first pasted
+    // character. `p` used to land one column right of it (single-line math
+    // applied to multi-line text); `P` was already right.
+    OracleCase {
+        name: "multiline charwise paste after leaves cursor at its start",
+        initial_text: "ab\ncd\n    q\n",
+        keys: "vjyGp",
+    },
+    OracleCase {
+        name: "multiline charwise paste before leaves cursor at its start",
+        initial_text: "ab\ncd\n    q\n",
+        keys: "vjyGP",
+    },
+    OracleCase {
+        name: "counted bracket p indents every copy",
+        initial_text: "  a\nb\n    c\n",
+        keys: "jyyj3]p",
+    },
+    OracleCase {
+        name: "bracket p from a named register",
+        initial_text: "  a\nb\n    c\n",
+        keys: "j\"ayyj\"a]p",
+    },
+    OracleCase {
+        name: "undo bracket p",
+        initial_text: "  a\nb\n    c\n",
+        keys: "jyyj]pu",
+    },
+    OracleCase {
+        name: "dot repeat bracket p",
+        initial_text: "a\n  b\n    c\n",
+        keys: "yyj]pj.",
+    },
 ];

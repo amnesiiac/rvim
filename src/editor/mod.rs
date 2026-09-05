@@ -5328,9 +5328,17 @@ impl Editor {
                 ));
 
                 self.buffers[self.current_buffer_idx].insert_str(insert_line, insert_col, &text);
-                if cursor_after && text.contains('\n') {
-                    (self.cursor.line, self.cursor.col) =
-                        Self::text_position_after_insert(insert_line, insert_col, &text);
+                if text.contains('\n') {
+                    if cursor_after {
+                        (self.cursor.line, self.cursor.col) =
+                            Self::text_position_after_insert(insert_line, insert_col, &text);
+                    } else {
+                        // Vim leaves the cursor on the first pasted character
+                        // when the text spans lines (single-line puts end on
+                        // the last one).
+                        self.cursor.line = insert_line;
+                        self.cursor.col = insert_col;
+                    }
                 } else {
                     let pasted_len = text.chars().count();
                     self.cursor.col = insert_col
@@ -5372,6 +5380,49 @@ impl Editor {
                 true,
                 redo_cursor,
             );
+        }
+        self.check_clipboard_error();
+    }
+
+    /// Vim's `]p` / `[p`: paste like `p` / `P`, but shift a linewise
+    /// register so its first non-empty line takes the current line's indent
+    /// and the rest keep their indent relative to it (see
+    /// `indent::reindent_block`). Characterwise registers paste unchanged,
+    /// as in Vim. A count repeats the already adjusted block, which is what
+    /// Vim's per-copy fix produces too.
+    pub fn paste_with_adjusted_indent(
+        &mut self,
+        register: Option<char>,
+        count: usize,
+        after: bool,
+    ) {
+        if let Some(content) = self.register_content_for_paste(register) {
+            let tab_width = self.settings.editor.tab_width;
+            let current = self.buffer().get_line_indent(self.cursor.line);
+            let target = crate::indent::indent_width(&current, tab_width);
+            let content = match content {
+                RegisterContent::Lines(text) => {
+                    RegisterContent::Lines(crate::indent::reindent_block(&text, target, tab_width))
+                }
+                // Vim merges the first line of a charwise register into the
+                // current line untouched and fixes the indent of the rest.
+                // (Its last line is assumed to carry text; see the oracle
+                // note for the empty-last-line edge.)
+                RegisterContent::Chars(text) if text.contains('\n') => {
+                    let (head, rest) = text.split_once('\n').unwrap_or((&text, ""));
+                    let rest = crate::indent::reindent_block(rest, target, tab_width);
+                    RegisterContent::Chars(format!("{head}\n{rest}"))
+                }
+                chars => chars,
+            };
+            let count = count.max(1);
+            let redo_cursor = (count > 1).then_some((self.cursor.line, self.cursor.col));
+            let content = Self::repeat_register_content(content, count);
+            if after {
+                self.paste_content_after(content, false, redo_cursor);
+            } else {
+                self.paste_content_before(content, false, redo_cursor);
+            }
         }
         self.check_clipboard_error();
     }
